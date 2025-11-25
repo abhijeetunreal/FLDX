@@ -311,10 +311,4 @@ If the repository includes a local server (dev environment), start it and open t
 - Cross, R. (2015). Sports ball dynamics and impact modelling.
 - Standard rigid-body dynamics and collision response literature (e.g., Baraff, M.)
 
----
 
-If you'd like, I can also:
-- Add example `scenarios/` JSON files and a small telemetry viewer.
-- Implement the simulation core in JS or TypeScript with a simple UI and sample scenarios.
-
-Contact: maintainers (local)
