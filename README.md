@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="Assets/fldx_thumbnail.png" alt="FLDX" width="640" />
+</p>
+
 # FILDX — Fielding Training Device Simulator Documentation
 
 Version: 1.0
