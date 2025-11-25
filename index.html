@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CricSim Pro v8.0: Hybrid Trainer</title>
+    <style>
+        body { margin: 0; overflow: hidden; font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #050505; }
+        
+        #scene-container { position: relative; width: 100%; height: 100%; }
+        canvas { display: block; } 
+
+        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; }
+        
+        /* CONTROLS PANEL */
+        #controls {
+            position: absolute; top: 20px; left: 20px; width: 300px;
+            background: rgba(10, 10, 10, 0.9); color: #ddd; padding: 20px;
+            border-radius: 8px; pointer-events: auto; backdrop-filter: blur(8px);
+            border: 1px solid #333; box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            max-height: 90vh; overflow-y: auto;
+        }
+
+        /* PHYSICS PANEL */
+        #physics-panel {
+            position: absolute; top: 20px; right: 20px; width: 260px;
+            background: rgba(10, 20, 30, 0.95); color: #88ccff; padding: 15px;
+            border-radius: 8px; pointer-events: auto; backdrop-filter: blur(8px);
+            border: 1px solid #004466; box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            font-family: 'Consolas', monospace; font-size: 0.85rem;
+            max-height: 90vh; overflow-y: auto;
+        }
+
+        h2 { margin: 0 0 15px 0; color: #ff9100; font-size: 1.1rem; text-transform: uppercase; letter-spacing: 1px; border-bottom: 1px solid #333; padding-bottom: 10px; }
+        h3 { font-size: 0.9rem; color: #888; margin: 15px 0 5px 0; text-transform: uppercase; display: flex; justify-content: space-between; align-items: center; }
+        h4 { margin: 0 0 10px 0; color: #00aaff; border-bottom: 1px solid #004466; padding-bottom: 5px; font-size: 1rem; }
+
+        .control-group { margin-bottom: 12px; }
+        .phy-group { margin-bottom: 8px; border-bottom: 1px dashed #335566; padding-bottom: 8px; }
+        
+        label { display: block; font-size: 0.85rem; margin-bottom: 4px; color: #bbb; }
+        .phy-label { color: #88ccff; display: flex; justify-content: space-between; }
+        
+        /* Range Inputs Style */
+        .range-row { display: flex; align-items: center; justify-content: space-between; gap: 5px; margin-bottom: 5px; }
+        .limit-input { 
+            width: 60px; background: #222; border: 1px solid #444; color: #fff; 
+            padding: 4px; border-radius: 4px; text-align: center; font-family: monospace; font-size: 0.9rem;
+        }
+        .range-sep { color: #666; font-size: 0.8rem; }
+
+        input[type=range] { width: 100%; cursor: pointer; accent-color: #ff9100; height: 4px; margin-top: 2px; }
+        select { width: 100%; padding: 6px; background: #222; color: white; border: 1px solid #444; border-radius: 4px; font-size: 0.9rem; }
+        
+        /* Player Toggle */
+        .mode-toggle {
+            background: #1a2a3a; padding: 10px; border-radius: 4px; border: 1px solid #2a4a6a; margin-bottom: 15px;
+        }
+        .mode-row { display: flex; justify-content: space-between; align-items: center; }
+        .mode-toggle span { color: #00aaff; font-weight: bold; font-size: 0.9rem; }
+        .mode-toggle input[type=checkbox] { width: auto; height: auto; margin: 0; cursor: pointer; transform: scale(1.2); }
+
+        /* Reset Button Style */
+        .reset-icon {
+            background: transparent; border: 1px solid #555; color: #888; 
+            border-radius: 3px; width: 18px; height: 18px; font-size: 10px; line-height: 10px;
+            cursor: pointer; margin-left: 8px; padding: 0; display: flex; align-items: center; justify-content: center;
+        }
+        .reset-icon:hover { border-color: #fff; color: #fff; background: #333; }
+        .val-container { display: flex; align-items: center; }
+
+        button.main-btn {
+            width: 100%; padding: 12px; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; margin-top: 10px; text-transform: uppercase; font-size: 14px;
+        }
+        #fire-btn { background: linear-gradient(180deg, #d32f2f, #b71c1c); color: white; }
+        #fire-btn:hover { filter: brightness(1.1); }
+        #reset-phy-btn { background: #004466; color: #00aaff; border: 1px solid #006699; margin-top: 15px; }
+        #reset-phy-btn:hover { background: #005580; color: white; }
+
+        /* TELEMETRY OVERLAY */
+        #telemetry-bar {
+            position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.8); color: #0f0; padding: 10px 20px;
+            border-radius: 20px; font-family: 'Consolas', monospace; font-size: 1rem;
+            border: 1px solid #333; pointer-events: none; display: flex; gap: 20px;
+        }
+        
+        .ball-label {
+            font-family: 'Consolas', monospace; font-size: 11px;
+            color: #ffff00; text-shadow: 1px 1px 2px black;
+            pointer-events: none; white-space: nowrap;
+            background: rgba(0,0,0,0.5); padding: 2px 4px; border-radius: 3px;
+        }
+        .label-row { display: flex; justify-content: space-between; align-items: center; }
+    </style>
+    
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+                "cannon-es": "https://unpkg.com/cannon-es@0.20.0/dist/cannon-es.js"
+            }
+        }
+    </script>
+</head>
+<body>
+    <div id="scene-container"></div>
+
+    <div id="ui-layer">
+        <div id="controls">
+            <h2>CricSim Pro v8.0</h2>
+            
+            <div class="mode-toggle">
+                <div class="mode-row">
+                    <span>Simulate Player</span>
+                    <input type="checkbox" id="player-mode-toggle">
+                </div>
+                <div class="control-group" style="margin-top: 8px; border-top: 1px solid #2a4a6a; padding-top: 8px; border-bottom: none; margin-bottom: 0;">
+                    <div class="label-row"><span>Error / Variation</span> <span id="val-error">5.0</span></div>
+                    <input type="range" id="inp-error" min="0" max="20" step="0.5" value="5.0">
+                </div>
+            </div>
+
+            <h3>Drill Selection <button class="reset-icon" id="btn-reset-drill" title="Reset Drill Defaults">⟳</button></h3>
+            <div class="control-group">
+                <select id="drill-select">
+                    <option value="Manual">Manual Aim</option>
+                    <option value="High Catch">High Catch Drill</option>
+                    <option value="Grounder">Ground Fielding</option>
+                    <option value="Slip Catch">Slip Catch</option>
+                    <option value="Boundary">Boundary Riding</option>
+                </select>
+            </div>
+            <div class="control-group">
+                <select id="env-select">
+                    <option value="standard">Standard Pitch</option>
+                    <option value="green">Green Top (Bouncy)</option>
+                    <option value="dust">Dust Bowl (Dead)</option>
+                    <option value="wet">Wet Outfield (Skid)</option>
+                </select>
+            </div>
+
+            <h3>Machine Ranges</h3>
+            
+            <div class="control-group">
+                <div class="label-row">
+                    <span>Speed (km/h)</span> 
+                    <span id="val-speed" style="color:#ff9100">80</span>
+                </div>
+                <input type="range" id="inp-speed" min="40" max="160" value="80" disabled>
+                <div class="range-row">
+                    <input type="number" id="min-speed" class="limit-input" value="40">
+                    <span class="range-sep">to</span>
+                    <input type="number" id="max-speed" class="limit-input" value="160">
+                </div>
+            </div>
+
+            <div class="control-group">
+                <div class="label-row">
+                    <span>Tilt (Vert °)</span> 
+                    <span id="val-tilt" style="color:#ff9100">10</span>
+                </div>
+                <input type="range" id="inp-tilt" min="-10" max="80" value="10" disabled>
+                <div class="range-row">
+                    <input type="number" id="min-tilt" class="limit-input" value="-10">
+                    <span class="range-sep">to</span>
+                    <input type="number" id="max-tilt" class="limit-input" value="70">
+                </div>
+            </div>
+
+            <div class="control-group">
+                <div class="label-row">
+                    <span>Pan (Horz °)</span> 
+                    <span id="val-pan" style="color:#ff9100">0</span>
+                </div>
+                <input type="range" id="inp-pan" min="-45" max="45" value="0" disabled>
+                <div class="range-row">
+                    <input type="number" id="min-pan" class="limit-input" value="-45">
+                    <span class="range-sep">to</span>
+                    <input type="number" id="max-pan" class="limit-input" value="45">
+                </div>
+            </div>
+
+            <div class="control-group">
+                <div class="label-row">
+                    <span>Release Height</span> <span id="val-height">1.3 m</span>
+                </div>
+                <input type="range" id="inp-height" min="0.5" max="3.0" step="0.1" value="1.3">
+            </div>
+
+            <button id="fire-btn" class="main-btn">FIRE (SPACE)</button>
+        </div>
+
+        <div id="physics-panel">
+            <h4>Physics Override</h4>
+            <div class="phy-group"><label class="phy-label"><span>Gravity Y</span> <span id="disp-gravity">-9.81</span></label><input type="range" class="phy-range" id="phy-gravity" min="-20" max="-1" step="0.1" value="-9.81"></div>
+            <div class="phy-group"><label class="phy-label"><span>Ball Mass</span> <span id="disp-mass">0.16</span></label><input type="range" class="phy-range" id="phy-mass" min="0.05" max="1.0" step="0.01" value="0.16"></div>
+            <div class="phy-group"><label class="phy-label"><span>Air Drag</span> <span id="disp-drag">0.3</span></label><input type="range" class="phy-range" id="phy-drag" min="0" max="1" step="0.05" value="0.3"></div>
+            <div class="phy-group"><label class="phy-label"><span>Roll Resist</span> <span id="disp-ang">0.4</span></label><input type="range" class="phy-range" id="phy-ang" min="0" max="1" step="0.05" value="0.4"></div>
+            <div class="phy-group" style="border:none; margin-top:10px;">
+                <strong style="color:#fff; display:block; margin-bottom:5px;">Pitch Properties</strong>
+                <label class="phy-label"><span>Bounce</span> <span id="disp-pres">0.7</span></label><input type="range" class="phy-range" id="phy-pres" min="0" max="1.0" step="0.05" value="0.7">
+                <label class="phy-label"><span>Friction</span> <span id="disp-pfric">0.1</span></label><input type="range" class="phy-range" id="phy-pfric" min="0" max="1" step="0.05" value="0.1">
+            </div>
+            <div class="phy-group" style="border:none;">
+                <strong style="color:#fff; display:block; margin-bottom:5px;">Grass Properties</strong>
+                <label class="phy-label"><span>Bounce</span> <span id="disp-gres">0.3</span></label><input type="range" class="phy-range" id="phy-gres" min="0" max="1.0" step="0.05" value="0.3">
+                <label class="phy-label"><span>Friction</span> <span id="disp-gfric">0.5</span></label><input type="range" class="phy-range" id="phy-gfric" min="0" max="1" step="0.05" value="0.5">
+            </div>
+            <button id="reset-phy-btn" class="main-btn">Reset Physics</button>
+        </div>
+
+        <div id="telemetry-bar">
+            <span>V: <span id="stat-vel">--</span></span>
+            <span>D: <span id="stat-dist">--</span></span>
+            <span>H: <span id="stat-height">--</span></span>
+            <span id="stat-status" style="color:#888">Ready</span>
+        </div>
+    </div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
+        import * as CANNON from 'cannon-es';
+
+        // --- DEFAULT CONFIGS ---
+        const defaultDrills = {
+            'Manual':       { sMin: 40, sMax: 160, sDef: 80, tMin: -10, tMax: 70, tDef: 10, pMin: -45, pMax: 45, pDef: 0 },
+            'High Catch':   { sMin: 75, sMax: 95,  sDef: 85, tMin: 50,  tMax: 70, tDef: 60, pMin: -30, pMax: 30, pDef: 0 },
+            'Grounder':     { sMin: 110, sMax: 140, sDef: 125, tMin: -4,  tMax: 2,  tDef: -2, pMin: -20, pMax: 20, pDef: 0 },
+            'Slip Catch':   { sMin: 130, sMax: 150, sDef: 140, tMin: 0,   tMax: 10, tDef: 5,  pMin: 15,  pMax: 30, pDef: 22 },
+            'Boundary':     { sMin: 90, sMax: 110, sDef: 100, tMin: 25,  tMax: 35, tDef: 30, pMin: -40, pMax: 40, pDef: 0 }
+        };
+
+        // --- GLOBAL STATE ---
+        const state = {
+            pan: 0, tilt: 10, speed: 80, height: 1.3,
+            drill: 'Manual', env: 'standard',
+            playerMode: false, error: 5.0, 
+            limits: { ...defaultDrills['Manual'] },
+            
+            // v5.1 PHYSICS
+            gravity: -9.81, mass: 0.16, drag: 0.3, angDrag: 0.4,
+            pRes: 0.7, pFric: 0.1, gRes: 0.3, gFric: 0.5
+        };
+
+        const envPresets = {
+            standard: { pRes: 0.7, pFric: 0.1, gRes: 0.3, gFric: 0.5 },
+            green:    { pRes: 0.85, pFric: 0.2, gRes: 0.2, gFric: 0.8 },
+            dust:     { pRes: 0.4, pFric: 0.4, gRes: 0.1, gFric: 0.4 },
+            wet:      { pRes: 0.6, pFric: 0.05, gRes: 0.1, gFric: 0.9 }
+        };
+
+        let scene, camera, renderer, labelRenderer, world;
+        let balls = [];
+        let matGround, matPitch, matBall, contactGrass, contactPitch;
+        let machineBase, machineHead;
+        let grassMesh, playerMarker; 
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0a1a2a); 
+            scene.fog = new THREE.Fog(0x0a1a2a, 20, 100);
+
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 10, -20);
+
+            const container = document.getElementById('scene-container');
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            container.appendChild(renderer.domElement);
+
+            labelRenderer = new CSS2DRenderer();
+            labelRenderer.setSize(window.innerWidth, window.innerHeight);
+            labelRenderer.domElement.style.position = 'absolute';
+            labelRenderer.domElement.style.top = '0';
+            labelRenderer.domElement.style.pointerEvents = 'none';
+            container.appendChild(labelRenderer.domElement);
+
+            const controls = new OrbitControls(camera, renderer.domElement);
+            controls.target.set(0, 1, 10);
+            controls.maxPolarAngle = Math.PI/2 - 0.05;
+            controls.enableDamping = true;
+
+            const ambient = new THREE.AmbientLight(0xffffff, 0.4);
+            scene.add(ambient);
+            const sun = new THREE.DirectionalLight(0xffffff, 1);
+            sun.position.set(10, 30, -10);
+            sun.castShadow = true;
+            sun.shadow.mapSize.width = 2048; sun.shadow.mapSize.height = 2048;
+            sun.shadow.camera.left = -50; sun.shadow.camera.right = 50;
+            sun.shadow.camera.top = 50; sun.shadow.camera.bottom = -50;
+            scene.add(sun);
+
+            setupPhysics();
+            createEnvironment();
+            createMachine();
+            createFieldMarkers(); 
+            createPlayerMarker();
+
+            setupUI();
+            applyDrillSelection(); // Load defaults
+            requestAnimationFrame(animate);
+        }
+
+        // --- v5.1 PHYSICS SETUP ---
+        function setupPhysics() {
+            world = new CANNON.World();
+            world.gravity.set(0, state.gravity, 0);
+            world.allowSleep = true; 
+            
+            matGround = new CANNON.Material();
+            matPitch = new CANNON.Material();
+            matBall = new CANNON.Material();
+
+            contactGrass = new CANNON.ContactMaterial(matGround, matBall, { friction: state.gFric, restitution: state.gRes });
+            contactPitch = new CANNON.ContactMaterial(matPitch, matBall, { friction: state.pFric, restitution: state.pRes });
+            world.addContactMaterial(contactGrass);
+            world.addContactMaterial(contactPitch);
+        }
+
+        function updatePhysicsParams() {
+            world.gravity.set(0, state.gravity, 0);
+            contactGrass.friction = state.gFric; contactGrass.restitution = state.gRes;
+            contactPitch.friction = state.pFric; contactPitch.restitution = state.pRes;
+            balls.forEach(b => { b.body.wakeUp(); b.body.mass = state.mass; b.body.angularDamping = state.angDrag; b.body.updateMassProperties(); });
+        }
+
+        function createEnvironment() {
+            const grassGeo = new THREE.PlaneGeometry(250, 250);
+            const grassMat = new THREE.MeshStandardMaterial({ color: 0x1b4d1b, roughness: 1 });
+            const grass = new THREE.Mesh(grassGeo, grassMat);
+            grass.rotation.x = -Math.PI / 2;
+            grass.receiveShadow = true;
+            scene.add(grass);
+            grassMesh = grass;
+
+            const grassBody = new CANNON.Body({ mass: 0, material: matGround, shape: new CANNON.Plane() });
+            grassBody.quaternion.setFromEuler(-Math.PI/2, 0, 0);
+            world.addBody(grassBody);
+
+            const pitchGeo = new THREE.PlaneGeometry(3.6, 22);
+            const pitchMat = new THREE.MeshStandardMaterial({ color: 0xd6c4a0, roughness: 0.8 });
+            const pitch = new THREE.Mesh(pitchGeo, pitchMat);
+            pitch.rotation.x = -Math.PI / 2;
+            pitch.position.set(0, 0.01, 11);
+            pitch.receiveShadow = true;
+            scene.add(pitch);
+            const pitchBody = new CANNON.Body({ mass: 0, material: matPitch });
+            pitchBody.addShape(new CANNON.Box(new CANNON.Vec3(1.8, 11, 0.1)));
+            pitchBody.position.set(0, -0.1, 11);
+            pitchBody.quaternion.setFromEuler(-Math.PI/2, 0, 0);
+            world.addBody(pitchBody);
+        }
+
+        function createFieldMarkers() {
+            const centerZ = 11; 
+            const c30 = new THREE.Mesh(new THREE.RingGeometry(27.3, 27.5, 128), new THREE.MeshBasicMaterial({ color: 0xffffff, opacity: 0.5, transparent: true, side: THREE.DoubleSide }));
+            c30.rotation.x = -Math.PI/2; c30.position.set(0, 0.02, centerZ); scene.add(c30);
+            const bound = new THREE.Mesh(new THREE.RingGeometry(65, 66, 128), new THREE.MeshBasicMaterial({ color: 0xffffff, opacity: 0.8, side: THREE.DoubleSide }));
+            bound.rotation.x = -Math.PI/2; bound.position.set(0, 0.02, centerZ); scene.add(bound);
+
+            const labels = [
+                { n: "Third Man", x: -25, z: 35 }, { n: "Fine Leg", x: 25, z: 35 }, { n: "Long Off", x: -15, z: -30 }, { n: "Long On", x: 15, z: -30 },
+                { n: "Deep Point", x: -50, z: 22 }, { n: "Deep Square Leg", x: 50, z: 22 }, { n: "Point", x: -20, z: 22 }, { n: "Square Leg", x: 20, z: 22 },
+                { n: "Cover", x: -15, z: 10 }, { n: "Mid Wicket", x: 15, z: 10 }, { n: "Mid Off", x: -8, z: 0 }, { n: "Mid On", x: 8, z: 0 },
+                { n: "Slips", x: -3, z: 25 }, { n: "Keeper", x: 0, z: 24 }
+            ];
+            labels.forEach(p => {
+                const cvs = document.createElement('canvas'); const ctx = cvs.getContext('2d'); cvs.width=256; cvs.height=64;
+                ctx.fillStyle="rgba(0,0,0,0)"; ctx.fillRect(0,0,256,64); ctx.fillStyle="rgba(255,255,255,0.5)"; ctx.font="bold 35px Arial";
+                ctx.textAlign="center"; ctx.textBaseline="middle"; ctx.fillText(p.n, 128, 32);
+                const tex = new THREE.CanvasTexture(cvs); const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide, depthWrite: false });
+                const mesh = new THREE.Mesh(new THREE.PlaneGeometry(8, 2), mat); mesh.rotation.x = -Math.PI/2; mesh.position.set(p.x, 0.05, p.z); scene.add(mesh);
+            });
+        }
+
+        function createPlayerMarker() {
+            const geo = new THREE.CylinderGeometry(0.4, 0.4, 1.8, 16);
+            const mat = new THREE.MeshStandardMaterial({ color: 0xffff00, emissive: 0x444400 });
+            playerMarker = new THREE.Mesh(geo, mat);
+            playerMarker.position.set(0, 0.9, 20); playerMarker.visible = false; scene.add(playerMarker);
+        }
+
+        function onMouseMove(e) {
+            if (!state.playerMode) return;
+            mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObject(grassMesh);
+            
+            if (intersects.length > 0) {
+                const pt = intersects[0].point;
+                playerMarker.position.set(pt.x, 0.9, pt.z);
+                
+                // Pan: Always aim at player
+                const angleRad = Math.atan2(pt.x, pt.z);
+                const angleDeg = -THREE.MathUtils.radToDeg(angleRad);
+                
+                // Pan is usually not limited by drill in the same way, but let's clamp it if you want strict field constraints
+                // For now, we allow full pan to track player, but launch will be clamped if needed.
+                updateSliderOnly('inp-pan', 'pan', 'val-pan', angleDeg, '°');
+
+                const dist = Math.sqrt(pt.x*pt.x + pt.z*pt.z);
+                
+                // USE DRILL DEFAULTS
+                const limits = state.limits;
+                
+                // Pick a default tilt from the drill (midpoint or default)
+                let t = limits.tDef; 
+                
+                // Check if this tilt is within current limits (it should be)
+                if(t < limits.tMin) t = limits.tMin;
+                if(t > limits.tMax) t = limits.tMax;
+
+                updateSliderOnly('inp-tilt', 'tilt', 'val-tilt', t, '°');
+
+                let spd;
+                if(t > 0) {
+                     // Calculate required speed for air shots based on drill's default tilt
+                     const rad = THREE.MathUtils.degToRad(t);
+                     const g = Math.abs(state.gravity);
+                     const sin2t = Math.sin(2 * rad);
+                     if(sin2t > 0.05) {
+                         const v = Math.sqrt((dist * g) / sin2t);
+                         spd = v * 3.6;
+                     } else {
+                         spd = (limits.sMin + limits.sMax) / 2;
+                     }
+                } else {
+                    // Grounders: Use max speed for long range
+                    spd = limits.sMax; 
+                }
+
+                // --- CRITICAL: CLAMP SPEED TO DRILL LIMITS ---
+                // If player is too far, speed will cap at sMax.
+                if(spd > limits.sMax) spd = limits.sMax; 
+                if(spd < limits.sMin) spd = limits.sMin;
+                
+                updateSliderOnly('inp-speed', 'speed', 'val-speed', spd, ' km/h');
+            }
+        }
+
+        function createMachine() {
+            const matDark = new THREE.MeshStandardMaterial({ color: 0x222 });
+            const matMetal = new THREE.MeshStandardMaterial({ color: 0x888, metalness: 0.8, roughness: 0.2 });
+
+            machineBase = new THREE.Group(); machineBase.position.y = 0.5; scene.add(machineBase);
+            const leg1 = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.2), matMetal); leg1.rotation.z = 0.3; leg1.position.set(0.3, 0.6, 0); machineBase.add(leg1);
+            const leg2 = leg1.clone(); leg2.rotation.z = -0.3; leg2.position.set(-0.3, 0.6, 0); machineBase.add(leg2);
+            const leg3 = leg1.clone(); leg3.rotation.z = 0; leg3.rotation.x = 0.3; leg3.position.set(0, 0.6, 0.4); machineBase.add(leg3);
+
+            machineHead = new THREE.Group(); machineHead.position.set(0, state.height, 0); machineBase.add(machineHead);
+            const housing = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.4, 0.6), matDark); machineHead.add(housing);
+            const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.4, 16, 1, true), matDark); barrel.rotation.x = Math.PI/2; barrel.position.z = 0.35; machineHead.add(barrel);
+        }
+
+        function fireBall() {
+            const rnd = (min, max) => Math.random() * (max - min) + min;
+            let finalSpeed, finalTilt, finalPan;
+            
+            const limits = state.limits;
+
+            if (state.playerMode) {
+                const pt = playerMarker.position;
+                const dist = Math.sqrt(pt.x*pt.x + pt.z*pt.z);
+                const angleRad = Math.atan2(pt.x, pt.z);
+                const basePan = -THREE.MathUtils.radToDeg(angleRad);
+                
+                // 1. Pan: Aim at player with slight error
+                const err = state.error;
+                finalPan = basePan + rnd(-err, err);
+
+                // 2. Tilt: Select a random tilt strictly WITHIN Drill Limits
+                let baseTilt = rnd(limits.tMin, limits.tMax);
+                
+                // 3. Speed: Calculate necessary speed for that tilt
+                let baseSpeed;
+                if (baseTilt > 0) {
+                    // Ballistic Calculation: v = sqrt(d*g / sin(2*theta))
+                    const g = Math.abs(state.gravity);
+                    const rad = THREE.MathUtils.degToRad(baseTilt);
+                    const sin2t = Math.sin(2 * rad);
+                    
+                    if(sin2t > 0.05) {
+                        const v_ms = Math.sqrt((dist * g) / sin2t);
+                        baseSpeed = v_ms * 3.6; // Convert to km/h
+                    } else {
+                        baseSpeed = limits.sDef; 
+                    }
+                } else {
+                    // Grounder: Just pick random speed in limits
+                    baseSpeed = rnd(limits.sMin, limits.sMax);
+                }
+
+                // 4. --- STRICT CLAMPING ---
+                // Even if player is far, we MUST NOT exceed the drill's sMax
+                if(baseSpeed < limits.sMin) baseSpeed = limits.sMin;
+                if(baseSpeed > limits.sMax) baseSpeed = limits.sMax;
+
+                // Apply error to calculated values
+                finalTilt = baseTilt + rnd(-err*0.2, err*0.2);
+                finalSpeed = baseSpeed + rnd(-err, err);
+
+            } else {
+                // DRILL MODE: Randomize within user limits
+                finalSpeed = rnd(limits.sMin, limits.sMax);
+                finalTilt = rnd(limits.tMin, limits.tMax);
+                finalPan = rnd(limits.pMin, limits.pMax);
+            }
+
+            // Update Visual State
+            updateSliderOnly('inp-speed', 'speed', 'val-speed', finalSpeed, ' km/h');
+            updateSliderOnly('inp-tilt', 'tilt', 'val-tilt', finalTilt, '°');
+            updateSliderOnly('inp-pan', 'pan', 'val-pan', finalPan, '°');
+
+            const rPan = THREE.MathUtils.degToRad(-finalPan);
+            const rTilt = THREE.MathUtils.degToRad(finalTilt);
+            const vMag = finalSpeed * (1000/3600);
+
+            const vx = Math.sin(rPan) * Math.cos(rTilt) * vMag;
+            const vy = Math.sin(rTilt) * vMag;
+            const vz = Math.cos(rPan) * Math.cos(rTilt) * vMag;
+
+            const spawnY = 0.5 + state.height;
+
+            // v5.1 PHYSICS BODY
+            const body = new CANNON.Body({
+                mass: state.mass, shape: new CANNON.Sphere(0.072),
+                position: new CANNON.Vec3(0, spawnY, 0),
+                linearDamping: state.drag, angularDamping: state.angDrag, 
+                material: matBall
+            });
+            body.velocity.set(vx, vy, vz);
+            body.angularVelocity.set(-5, 0, 0); 
+            body.sleepSpeedLimit = 0.5; body.sleepTimeLimit = 0.5;
+            world.addBody(body);
+
+            const geo = new THREE.SphereGeometry(0.072, 32, 32);
+            const mat = new THREE.MeshStandardMaterial({ color: 0xff3300, roughness: 0.4, emissive: 0x441100 });
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.castShadow = true;
+            
+            const spriteMap = new THREE.TextureLoader().load('https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/sprites/spark1.png');
+            const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: spriteMap, color: 0xffaa00, transparent: true, blending: THREE.AdditiveBlending }));
+            sprite.scale.set(0.6, 0.6, 0.6); mesh.add(sprite); scene.add(mesh);
+
+            const trailGeo = new THREE.BufferGeometry();
+            const positions = new Float32Array(500 * 3);
+            trailGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            trailGeo.setDrawRange(0, 0);
+            const trailMat = new THREE.LineBasicMaterial({ color: 0x00ffff, linewidth: 1, opacity: 0.7, transparent: true });
+            const trailLine = new THREE.Line(trailGeo, trailMat);
+            scene.add(trailLine);
+
+            const div = document.createElement('div'); div.className = 'ball-label'; div.textContent = '...';
+            const label = new CSS2DObject(div); label.position.set(0, 0.2, 0); mesh.add(label);
+
+            balls.push({ mesh, body, trailLine, label, trailPos: positions, trailIdx: 0, created: Date.now(), isDead: false, maxH: 0 });
+        }
+
+        function removeBall(b) {
+            b.isDead = true;
+            world.removeBody(b.body);
+            scene.remove(b.mesh);
+            scene.remove(b.trailLine);
+            b.trailLine.geometry.dispose();
+            if (b.label) { b.mesh.remove(b.label); if (b.label.element && b.label.element.parentNode) b.label.element.parentNode.removeChild(b.label.element); }
+            balls = balls.filter(ball => ball !== b);
+        }
+
+        // Apply drill defaults + INSTANTLY ROTATE MACHINE
+        function applyDrillSelection() {
+            const def = defaultDrills[state.drill];
+            state.limits = { ...def };
+            
+            document.getElementById('min-speed').value = def.sMin; document.getElementById('max-speed').value = def.sMax;
+            document.getElementById('min-tilt').value = def.tMin;  document.getElementById('max-tilt').value = def.tMax;
+            document.getElementById('min-pan').value = def.pMin;   document.getElementById('max-pan').value = def.pMax;
+
+            // Instant Visual Feedback
+            updateSliderOnly('inp-speed', 'speed', 'val-speed', def.sDef, ' km/h');
+            updateSliderOnly('inp-tilt', 'tilt', 'val-tilt', def.tDef, '°');
+            updateSliderOnly('inp-pan', 'pan', 'val-pan', def.pDef, '°');
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            world.step(1/60); // v5.1 Physics Step
+
+            machineBase.rotation.y = THREE.MathUtils.lerp(machineBase.rotation.y, THREE.MathUtils.degToRad(-state.pan), 0.1);
+            machineHead.rotation.x = THREE.MathUtils.lerp(machineHead.rotation.x, THREE.MathUtils.degToRad(-state.tilt), 0.1);
+            machineHead.position.y = THREE.MathUtils.lerp(machineHead.position.y, state.height, 0.1);
+
+            balls.forEach(b => {
+                if (b.isDead) return;
+                b.mesh.position.copy(b.body.position);
+                b.mesh.quaternion.copy(b.body.quaternion);
+
+                const speed = b.body.velocity.length();
+                const dist = Math.sqrt(b.mesh.position.x**2 + b.mesh.position.z**2);
+                if(b.mesh.position.y > b.maxH) b.maxH = b.mesh.position.y;
+
+                if (b.label && b.label.element) {
+                    if (speed > 1) { b.label.element.textContent = `${(speed*3.6).toFixed(0)} km/h`; b.label.element.style.color = '#ffff00'; } 
+                    else { b.label.element.textContent = `${dist.toFixed(1)}m`; b.label.element.style.color = '#00ff00'; }
+                }
+
+                if (b === balls[balls.length-1]) {
+                    document.getElementById('stat-vel').textContent = (speed*3.6).toFixed(1) + ' km/h';
+                    document.getElementById('stat-dist').textContent = dist.toFixed(1) + ' m';
+                    document.getElementById('stat-height').textContent = b.maxH.toFixed(1) + ' m';
+                }
+
+                if (b.trailIdx < 500 && speed > 0.1) {
+                    const i = b.trailIdx * 3;
+                    b.trailPos[i] = b.mesh.position.x; b.trailPos[i+1] = b.mesh.position.y; b.trailPos[i+2] = b.mesh.position.z;
+                    b.trailIdx++; b.trailLine.geometry.setDrawRange(0, b.trailIdx); b.trailLine.geometry.attributes.position.needsUpdate = true;
+                }
+
+                if (b.body.sleepState === CANNON.Body.SLEEPING || b.mesh.position.y < -1) {
+                    document.getElementById('stat-status').textContent = "Ball Stopped"; removeBall(b);
+                } else { document.getElementById('stat-status').textContent = "Active"; }
+            });
+
+            renderer.render(scene, camera);
+            labelRenderer.render(scene, camera);
+        }
+
+        function updateSliderOnly(id, key, dispId, val, unit='') {
+            state[key] = parseFloat(val);
+            document.getElementById(id).value = state[key];
+            if(dispId) document.getElementById(dispId).textContent = (Math.round(state[key]*100)/100) + unit;
+        }
+
+        function updatePhysicsInput(id, key, dispId, val, unit='') {
+            updateSliderOnly(id, key, dispId, val, unit);
+        }
+
+        function setupUI() {
+            const bind = (id, key, disp, unit) => {
+                document.getElementById(id).addEventListener('input', e => updateSliderOnly(id, key, disp, e.target.value, unit));
+            };
+            bind('inp-speed', 'speed', 'val-speed', ' km/h');
+            bind('inp-tilt', 'tilt', 'val-tilt', '°');
+            bind('inp-pan', 'pan', 'val-pan', '°');
+            bind('inp-height', 'height', 'val-height', ' m'); 
+            bind('inp-error', 'error', 'val-error', '');
+
+            // Bind Limit Inputs
+            const bindLimit = (id, key) => {
+                document.getElementById(id).addEventListener('change', e => { state.limits[key] = parseFloat(e.target.value); });
+            };
+            bindLimit('min-speed', 'sMin'); bindLimit('max-speed', 'sMax');
+            bindLimit('min-tilt', 'tMin'); bindLimit('max-tilt', 'tMax');
+            bindLimit('min-pan', 'pMin'); bindLimit('max-pan', 'pMax');
+
+            document.getElementById('player-mode-toggle').addEventListener('change', e => {
+                state.playerMode = e.target.checked;
+                if(playerMarker) playerMarker.visible = state.playerMode;
+                if(state.playerMode) window.addEventListener('mousemove', onMouseMove);
+                else window.removeEventListener('mousemove', onMouseMove);
+            });
+
+            document.getElementById('drill-select').addEventListener('change', e => {
+                state.drill = e.target.value;
+                applyDrillSelection();
+            });
+            document.getElementById('btn-reset-drill').addEventListener('click', () => applyDrillSelection());
+
+            document.getElementById('env-select').addEventListener('change', e => {
+                state.env = e.target.value;
+                const p = envPresets[state.env];
+                state.pRes = p.pRes; state.pFric = p.pFric; state.gRes = p.gRes; state.gFric = p.gFric;
+                updatePhysicsInput('phy-pres', 'pRes', 'disp-pres', p.pRes); updatePhysicsInput('phy-pfric', 'pFric', 'disp-pfric', p.pFric);
+                updatePhysicsInput('phy-gres', 'gRes', 'disp-gres', p.gRes); updatePhysicsInput('phy-gfric', 'gFric', 'disp-gfric', p.gFric);
+                updatePhysicsParams();
+            });
+
+            document.getElementById('fire-btn').addEventListener('click', () => { fireBall(); document.getElementById('fire-btn').blur(); });
+            window.addEventListener('keydown', e => { if(e.code === 'Space') { e.preventDefault(); fireBall(); } });
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth/window.innerHeight; camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight); labelRenderer.setSize(window.innerWidth, window.innerHeight);
+            });
+
+            const bindPhy = (id, key, disp) => {
+                document.getElementById(id).addEventListener('input', e => { updatePhysicsInput(id, key, disp, e.target.value); updatePhysicsParams(); });
+            };
+            bindPhy('phy-gravity', 'gravity', 'disp-gravity'); bindPhy('phy-mass', 'mass', 'disp-mass');
+            bindPhy('phy-drag', 'drag', 'disp-drag'); bindPhy('phy-ang', 'angDrag', 'disp-ang');
+            bindPhy('phy-pres', 'pRes', 'disp-pres'); bindPhy('phy-pfric', 'pFric', 'disp-pfric');
+            bindPhy('phy-gres', 'gRes', 'disp-gres'); bindPhy('phy-gfric', 'gFric', 'disp-gfric');
+
+            document.getElementById('reset-phy-btn').addEventListener('click', () => {
+                updatePhysicsInput('phy-gravity', 'gravity', 'disp-gravity', -9.81); updatePhysicsInput('phy-mass', 'mass', 'disp-mass', 0.16);
+                updatePhysicsInput('phy-drag', 'drag', 'disp-drag', 0.3); updatePhysicsInput('phy-ang', 'angDrag', 'disp-ang', 0.4);
+                document.getElementById('env-select').value = 'standard'; state.env = 'standard'; const p = envPresets.standard;
+                updatePhysicsInput('phy-pres', 'pRes', 'disp-pres', p.pRes); updatePhysicsInput('phy-pfric', 'pFric', 'disp-pfric', p.pFric);
+                updatePhysicsInput('phy-gres', 'gRes', 'disp-gres', p.gRes); updatePhysicsInput('phy-gfric', 'gFric', 'disp-gfric', p.gFric);
+                updatePhysicsParams();
+            });
+
+            applyDrillSelection();
+        }
+
+        init();
+    </script>
+</body>
+</html>
