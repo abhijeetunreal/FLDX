@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CricSim Pro v8.0: Hybrid Trainer</title>
+    <title>FLDX - PRECISION IN MOTION</title>
     <style>
         body { margin: 0; overflow: hidden; font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #050505; }
         
@@ -109,7 +109,7 @@
 
     <div id="ui-layer">
         <div id="controls">
-            <h2>CricSim Pro v8.0</h2>
+            <h2>FLDX</h2>
             
             <div class="mode-toggle">
                 <div class="mode-row">
@@ -256,7 +256,7 @@
         let scene, camera, renderer, labelRenderer, world;
         let balls = [];
         let matGround, matPitch, matBall, contactGrass, contactPitch;
-        let machineBase, machineHead;
+        let machineBase, machineHead, machineRod, machineSwivel;
         let grassMesh, playerMarker; 
         const raycaster = new THREE.Raycaster();
         const mouse = new THREE.Vector2();
@@ -448,16 +448,49 @@
 
         function createMachine() {
             const matDark = new THREE.MeshStandardMaterial({ color: 0x222 });
-            const matMetal = new THREE.MeshStandardMaterial({ color: 0x888, metalness: 0.8, roughness: 0.2 });
+            const matMetal = new THREE.MeshStandardMaterial({ color: 0x777777, metalness: 0.7, roughness: 0.3 });
 
-            machineBase = new THREE.Group(); machineBase.position.y = 0.5; scene.add(machineBase);
-            const leg1 = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.2), matMetal); leg1.rotation.z = 0.3; leg1.position.set(0.3, 0.6, 0); machineBase.add(leg1);
-            const leg2 = leg1.clone(); leg2.rotation.z = -0.3; leg2.position.set(-0.3, 0.6, 0); machineBase.add(leg2);
-            const leg3 = leg1.clone(); leg3.rotation.z = 0; leg3.rotation.x = 0.3; leg3.position.set(0, 0.6, 0.4); machineBase.add(leg3);
+            // Simple, practical base: low-profile platform with short feet and compact head
+            machineBase = new THREE.Group(); machineBase.position.y = 0.12; scene.add(machineBase);
 
-            machineHead = new THREE.Group(); machineHead.position.set(0, state.height, 0); machineBase.add(machineHead);
-            const housing = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.4, 0.6), matDark); machineHead.add(housing);
-            const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.4, 16, 1, true), matDark); barrel.rotation.x = Math.PI/2; barrel.position.z = 0.35; machineHead.add(barrel);
+            // Base platform
+            const basePlate = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.18, 0.8), matMetal);
+            basePlate.position.y = 0; basePlate.receiveShadow = true; basePlate.castShadow = true; machineBase.add(basePlate);
+
+            // Short feet (4 corners)
+            const footGeo = new THREE.CylinderGeometry(0.06, 0.06, 0.08, 12);
+            const footOffsets = [ [0.48, -0.09, 0.28], [-0.48, -0.09, 0.28], [0.48, -0.09, -0.28], [-0.48, -0.09, -0.28] ];
+            footOffsets.forEach(off => {
+                const f = new THREE.Mesh(footGeo, matDark);
+                f.position.set(off[0], off[1], off[2]); f.castShadow = true; machineBase.add(f);
+            });
+
+            // Small pillar to raise the head a little above the plate
+            const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.18, 0.18), matDark);
+            pillar.position.set(0, 0.12, 0); machineBase.add(pillar);
+
+            // Connecting rod (thin cylinder) that links the pillar to the moving head
+            const rodGeo = new THREE.CylinderGeometry(0.04, 0.04, 1.0, 12);
+            machineRod = new THREE.Mesh(rodGeo, matMetal);
+            machineRod.castShadow = true; machineRod.receiveShadow = true;
+            machineRod.scale.set(1, 1.0, 1);
+            // add rod to scene (we position/rotate it in world space each frame)
+            scene.add(machineRod);
+
+            // Create a swivel group positioned at the pillar top so only the head pans
+            machineSwivel = new THREE.Group();
+            // pillar top relative to machineBase: pillar.position.y (0.12) + half pillar height (0.09) = 0.21
+            machineSwivel.position.set(0, 0.21, 0);
+            machineBase.add(machineSwivel);
+
+            // Compact head mounted on swivel (its local Y is relative to swivel pivot)
+            machineHead = new THREE.Group();
+            // Head local Y such that world Y ~= state.height + 0.12 (previous behavior)
+            machineHead.position.set(0, state.height - 0.09, 0);
+            machineSwivel.add(machineHead);
+            const housing = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.32, 0.48), matDark); housing.castShadow = true; machineHead.add(housing);
+            const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.36, 12), matDark);
+            barrel.rotation.x = Math.PI/2; barrel.position.z = 0.32; machineHead.add(barrel);
         }
 
         function fireBall() {
@@ -593,9 +626,37 @@
             requestAnimationFrame(animate);
             world.step(1/60); // v5.1 Physics Step
 
-            machineBase.rotation.y = THREE.MathUtils.lerp(machineBase.rotation.y, THREE.MathUtils.degToRad(-state.pan), 0.1);
-            machineHead.rotation.x = THREE.MathUtils.lerp(machineHead.rotation.x, THREE.MathUtils.degToRad(-state.tilt), 0.1);
-            machineHead.position.y = THREE.MathUtils.lerp(machineHead.position.y, state.height, 0.1);
+            // Keep base fixed; pan only rotates the swivel (visual head yaw)
+            if (machineSwivel) machineSwivel.rotation.y = THREE.MathUtils.lerp(machineSwivel.rotation.y, THREE.MathUtils.degToRad(-state.pan), 0.1);
+            // Tilt (pitch) applies to the head local rotation.x
+            if (machineHead) machineHead.rotation.x = THREE.MathUtils.lerp(machineHead.rotation.x, THREE.MathUtils.degToRad(-state.tilt), 0.1);
+            // Smoothly animate the head's local Y (distance from swivel) to follow state.height
+            if (machineHead) machineHead.position.y = THREE.MathUtils.lerp(machineHead.position.y, state.height - 0.09, 0.1);
+
+            // Update connecting rod to visually link pillar top to the moving head in world space
+            if (machineRod && machineHead && machineBase) {
+                // pillar top world position
+                const pillarTopLocal = new THREE.Vector3(0, 0.21, 0);
+                const pillarTopWorld = pillarTopLocal.clone(); machineBase.localToWorld(pillarTopWorld);
+                // head world position
+                const headWorld = new THREE.Vector3(); machineHead.getWorldPosition(headWorld);
+
+                // vector from pillar top to head
+                const v = new THREE.Vector3().subVectors(headWorld, pillarTopWorld);
+                const length = Math.max(0.05, v.length());
+
+                // position rod midpoint
+                const mid = new THREE.Vector3().addVectors(pillarTopWorld, headWorld).multiplyScalar(0.5);
+                machineRod.position.copy(mid);
+
+                // align rod's Y axis to vector v
+                const up = new THREE.Vector3(0, 1, 0);
+                const q = new THREE.Quaternion().setFromUnitVectors(up, v.clone().normalize());
+                machineRod.quaternion.copy(q);
+
+                // scale rod to match length (original cylinder height = 1.0, so scale.y = length)
+                machineRod.scale.set(1, length, 1);
+            }
 
             balls.forEach(b => {
                 if (b.isDead) return;
