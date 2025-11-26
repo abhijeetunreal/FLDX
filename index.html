@@ -108,6 +108,72 @@
         #graph-legend .legend-item { display:flex; gap:6px; align-items:center; color:#cde; }
         #graph-legend .legend-swatch { width:12px; height:12px; border-radius:2px; display:inline-block; }
         #graph-legend .legend-live { margin-left:12px; font-weight:bold; color:#fff; }
+
+        /* SPLASH SCREEN */
+        #splash-screen {
+            position: fixed;
+            inset: 0;
+            background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 100%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            transition: opacity 0.5s ease-out;
+        }
+        #splash-screen.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+        #splash-content {
+            text-align: center;
+            max-width: 600px;
+            padding: 40px;
+        }
+        #splash-image {
+            max-width: 400px;
+            width: 100%;
+            height: auto;
+            margin: 0 auto 30px;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+        }
+        #splash-description {
+            color: #ddd;
+            font-size: 1.1rem;
+            line-height: 1.6;
+            margin-bottom: 40px;
+            padding: 0 20px;
+        }
+        #start-simulator-btn {
+            background: linear-gradient(180deg, #ff9100, #ff6600);
+            color: white;
+            border: none;
+            padding: 16px 48px;
+            font-size: 1.2rem;
+            font-weight: bold;
+            border-radius: 8px;
+            cursor: pointer;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            box-shadow: 0 4px 16px rgba(255, 145, 0, 0.3);
+            transition: all 0.3s ease;
+        }
+        #start-simulator-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(255, 145, 0, 0.5);
+            filter: brightness(1.1);
+        }
+        #start-simulator-btn:active {
+            transform: translateY(0);
+        }
+        #main-viewport {
+            opacity: 0;
+            transition: opacity 0.5s ease-in;
+        }
+        #main-viewport.visible {
+            opacity: 1;
+        }
     </style>
     
     <script type="importmap">
@@ -121,6 +187,21 @@
     </script>
 </head>
 <body>
+    <!-- Splash Screen -->
+    <div id="splash-screen">
+        <div id="splash-content">
+            <img id="splash-image" src="Assets/fldx_thumbnail.png" alt="FLDX Simulator">
+            <p id="splash-description">
+                FLDX is a cricket fielding device simulator that provides precision training drills through realistic physics-based ball projection. 
+                Design various fielding drills including high catches, ground fielding, slip catches, and boundary riding. 
+                Customize machine parameters, adjust physics properties, and track ball trajectory in real-time.
+            </p>
+            <button id="start-simulator-btn">Start Simulator</button>
+        </div>
+    </div>
+
+    <!-- Main Simulator View -->
+    <div id="main-viewport">
     <div id="viewport"><div id="viewport-inner">
         <div id="scene-container"></div>
 
@@ -246,6 +327,7 @@
         </div>
     </div>
     </div></div>
+    </div>
 
     <script type="module">
         import * as THREE from 'three';
@@ -326,6 +408,21 @@
                 if (graphPanel) clampPanelToWindow();
                 if (graphCanvas) resizeGraphCanvas();
             } catch (e) { console.warn('updateUiScale error', e); }
+        }
+
+        // Splash screen handler
+        function initSplashScreen() {
+            const splashScreen = document.getElementById('splash-screen');
+            const mainViewport = document.getElementById('main-viewport');
+            const startBtn = document.getElementById('start-simulator-btn');
+            
+            startBtn.addEventListener('click', () => {
+                splashScreen.classList.add('hidden');
+                setTimeout(() => {
+                    splashScreen.style.display = 'none';
+                    mainViewport.classList.add('visible');
+                }, 500);
+            });
         }
 
         function init() {
@@ -1070,6 +1167,10 @@
             const btnc = document.getElementById('btn-clear-graphs'); if (btnc) btnc.addEventListener('click', clearGraphData);
         }
 
+        // Initialize splash screen first
+        initSplashScreen();
+        
+        // Initialize simulator (but it will be hidden until splash is dismissed)
         init();
     </script>
 </body>
