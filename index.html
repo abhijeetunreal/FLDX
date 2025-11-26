@@ -579,6 +579,7 @@
             const pitchMat = new THREE.MeshStandardMaterial({ color: 0xd6c4a0, roughness: 0.8 });
             const pitch = new THREE.Mesh(pitchGeo, pitchMat);
             pitch.rotation.x = -Math.PI / 2;
+            // Standard orientation: pitch center in front of keeper
             pitch.position.set(0, 0.01, 11);
             pitch.receiveShadow = true;
             scene.add(pitch);
@@ -607,7 +608,10 @@
                 ctx.fillStyle="rgba(0,0,0,0)"; ctx.fillRect(0,0,256,64); ctx.fillStyle="rgba(255,255,255,0.5)"; ctx.font="bold 35px Arial";
                 ctx.textAlign="center"; ctx.textBaseline="middle"; ctx.fillText(p.n, 128, 32);
                 const tex = new THREE.CanvasTexture(cvs); const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide, depthWrite: false });
-                const mesh = new THREE.Mesh(new THREE.PlaneGeometry(8, 2), mat); mesh.rotation.x = -Math.PI/2; mesh.position.set(p.x, 0.05, p.z); scene.add(mesh);
+                const mesh = new THREE.Mesh(new THREE.PlaneGeometry(8, 2), mat); 
+                mesh.rotation.x = -Math.PI/2; 
+                mesh.position.set(p.x, 0.05, p.z); 
+                scene.add(mesh);
             });
         }
 
@@ -684,7 +688,12 @@
             const matMetal = new THREE.MeshStandardMaterial({ color: 0x777777, metalness: 0.7, roughness: 0.3 });
 
             // Simple, practical base: low-profile platform with short feet and compact head
-            machineBase = new THREE.Group(); machineBase.position.y = 0.12; scene.add(machineBase);
+            machineBase = new THREE.Group();
+            // Move machine to the opposite side of the pitch (behind the batsman end)
+            machineBase.position.set(0, 0.12, 22);
+            // Rotate base 180° so it faces back towards the keeper/pitch
+            machineBase.rotation.y = Math.PI;
+            scene.add(machineBase);
 
             // Base platform
             const basePlate = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.18, 0.8), matMetal);
@@ -792,35 +801,25 @@
                 updateSliderOnly('inp-pan', 'pan', 'val-pan', finalPan, '°');
             }
 
-            const rPan = THREE.MathUtils.degToRad(-finalPan);
-            const rTilt = THREE.MathUtils.degToRad(finalTilt);
             const vMag = finalSpeed * (1000/3600);
-
-            const vx = Math.sin(rPan) * Math.cos(rTilt) * vMag;
-            const vy = Math.sin(rTilt) * vMag;
-            const vz = Math.cos(rPan) * Math.cos(rTilt) * vMag;
-
-            // Calculate barrel front position: head center + forward direction * barrel length
-            // Head center world Y = base(0.12) + swivel(0.21) + head local Y(state.height - 0.09) = 0.24 + state.height
-            // Barrel extends 0.5 units forward (0.32 position + 0.18 half length) along the aim direction
-            const barrelFrontOffset = 0;
-            const headCenterY = 0.24 + state.height;
-            const forwardX = Math.sin(rPan) * Math.cos(rTilt);
-            const forwardY = Math.sin(rTilt);
-            const forwardZ = Math.cos(rPan) * Math.cos(rTilt);
-            
-            const spawnX = forwardX * barrelFrontOffset;
-            const spawnY = headCenterY + forwardY * barrelFrontOffset;
-            const spawnZ = forwardZ * barrelFrontOffset;
+            // Use the actual machine head world transform so physics direction matches visuals,
+            // no matter where the machine is placed on the field.
+            const headWorldPos = new THREE.Vector3();
+            const headWorldQuat = new THREE.Quaternion();
+            machineHead.getWorldPosition(headWorldPos);
+            machineHead.getWorldQuaternion(headWorldQuat);
+            const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(headWorldQuat).normalize();
+            const barrelFrontOffset = 0.5; // distance from head center to barrel exit
+            const spawnPos = headWorldPos.clone().add(forward.clone().multiplyScalar(barrelFrontOffset));
 
             // v5.1 PHYSICS BODY
             const body = new CANNON.Body({
                 mass: state.mass, shape: new CANNON.Sphere(0.072),
-                position: new CANNON.Vec3(spawnX, spawnY, spawnZ),
+                position: new CANNON.Vec3(spawnPos.x, spawnPos.y, spawnPos.z),
                 linearDamping: state.drag, angularDamping: state.angDrag, 
                 material: matBall
             });
-            body.velocity.set(vx, vy, vz);
+            body.velocity.set(forward.x * vMag, forward.y * vMag, forward.z * vMag);
             body.angularVelocity.set(-5, 0, 0); 
             body.sleepSpeedLimit = 0.5; body.sleepTimeLimit = 0.5;
             world.addBody(body);
