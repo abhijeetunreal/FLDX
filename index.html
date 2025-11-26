@@ -5,12 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FLDX - PRECISION IN MOTION</title>
     <style>
+        html, body { height: 100%; }
         body { margin: 0; overflow: hidden; font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #050505; }
         
-        #scene-container { position: relative; width: 100%; height: 100%; }
-        canvas { display: block; } 
+        /* viewport/inner wrapper preserves a fixed desktop aspect ratio and centers the inner content */
+        #viewport { position: fixed; inset: 0; display:flex; align-items:center; justify-content:center; background: #050505; }
+        #viewport-inner { position: relative; width: 100%; height: 100%; max-width: 100%; max-height: 100%; overflow: hidden; }
+        #scene-container { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
+        canvas { display: block; width: 100%; height: 100%; } 
 
-        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; }
+        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; transform-origin: left top; }
         
         /* CONTROLS PANEL */
         #controls {
@@ -117,9 +121,10 @@
     </script>
 </head>
 <body>
-    <div id="scene-container"></div>
+    <div id="viewport"><div id="viewport-inner">
+        <div id="scene-container"></div>
 
-    <div id="ui-layer">
+        <div id="ui-layer">
         <div id="controls">
             <h2>FLDX</h2>
             
@@ -240,6 +245,7 @@
             <div class="graph-resizer" title="Resize graph panel"></div>
         </div>
     </div>
+    </div></div>
 
     <script type="module">
         import * as THREE from 'three';
@@ -276,6 +282,8 @@
         };
 
         let scene, camera, renderer, labelRenderer, world;
+        let DESKTOP_ASPECT; // captured on init() to preserve desktop aspect ratio on other screens
+        let DESKTOP_WIDTH, DESKTOP_HEIGHT; // capture desktop size so we can scale UI
         let balls = [];
         let graphPanel, graphCanvas, graphCtx, graphVisible = false;
         let lastGraphData = null; // persistent data after ball removal until next fire
@@ -286,26 +294,63 @@
         const raycaster = new THREE.Raycaster();
         const mouse = new THREE.Vector2();
         
+        function resizeViewport() {
+            const vpInner = document.getElementById('viewport-inner');
+            if (!vpInner || !renderer || !camera) return;
+            const vw = window.innerWidth; const vh = window.innerHeight;
+            const aspect = DESKTOP_ASPECT || (vw / vh);
+            let targetW = vw; let targetH = Math.round(targetW / aspect);
+            if (targetH > vh) { targetH = vh; targetW = Math.round(targetH * aspect); }
+            vpInner.style.width = targetW + 'px'; vpInner.style.height = targetH + 'px';
+            renderer.setSize(targetW, targetH);
+            camera.aspect = targetW / targetH; camera.updateProjectionMatrix();
+            if (labelRenderer) labelRenderer.setSize(targetW, targetH);
+        }
+
+        // Update UI scaling based on DESKTOP_* ratio and current viewport size
+        function updateUiScale() {
+            try {
+                const vpInner = document.getElementById('viewport-inner');
+                const uiLayer = document.getElementById('ui-layer');
+                if (!vpInner || !uiLayer) return;
+                const rect = vpInner.getBoundingClientRect();
+                const scaleW = rect.width / (DESKTOP_WIDTH || rect.width);
+                const scaleH = rect.height / (DESKTOP_HEIGHT || rect.height);
+                const scale = Math.min(scaleW, scaleH);
+                uiLayer.style.width = (DESKTOP_WIDTH || rect.width) + 'px';
+                uiLayer.style.height = (DESKTOP_HEIGHT || rect.height) + 'px';
+                uiLayer.style.transformOrigin = 'left top';
+                uiLayer.style.transform = 'scale(' + scale + ')';
+            } catch (e) { console.warn('updateUiScale error', e); }
+        }
+
         function init() {
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x0a1a2a); 
             scene.fog = new THREE.Fog(0x0a1a2a, 20, 100);
 
-            camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 1000);
+            // Capture the desktop aspect ratio and size at load-time and use it across viewports to keep proportions
+            DESKTOP_ASPECT = window.innerWidth / window.innerHeight;
+            DESKTOP_WIDTH = window.innerWidth;
+            DESKTOP_HEIGHT = window.innerHeight;
+            camera = new THREE.PerspectiveCamera(60, DESKTOP_ASPECT, 0.1, 1000);
             camera.position.set(0, 10, -20);
 
             const container = document.getElementById('scene-container');
             renderer = new THREE.WebGLRenderer({ antialias: true });
-            renderer.setSize(window.innerWidth, window.innerHeight);
+            // renderer size and camera aspect are set via resizeViewport() to preserve desktop aspect ratio
             renderer.shadowMap.enabled = true;
             container.appendChild(renderer.domElement);
 
             labelRenderer = new CSS2DRenderer();
-            labelRenderer.setSize(window.innerWidth, window.innerHeight);
             labelRenderer.domElement.style.position = 'absolute';
             labelRenderer.domElement.style.top = '0';
             labelRenderer.domElement.style.pointerEvents = 'none';
             container.appendChild(labelRenderer.domElement);
+
+            // Ensure renderer and camera are sized to preserve desktop aspect ratio
+            resizeViewport();
+            updateUiScale();
 
             const controls = new OrbitControls(camera, renderer.domElement);
             controls.target.set(0, 1, 10);
@@ -414,8 +459,10 @@
 
         function onMouseMove(e) {
             if (!state.playerMode) return;
-            mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
-            mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+            // Convert client coordinates to normalized device coordinates relative to the renderer element
+            const rect = renderer.domElement.getBoundingClientRect();
+            mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
             raycaster.setFromCamera(mouse, camera);
             const intersects = raycaster.intersectObject(grassMesh);
             
@@ -758,9 +805,13 @@
         // --- LIVE GRAPH HELPERS ---
         function clampPanelToWindow() {
             if (!graphPanel) return;
-            const rect = graphPanel.getBoundingClientRect(); let l = rect.left, t = rect.top, w = rect.width, h = rect.height;
-            if (l + w > window.innerWidth) l = window.innerWidth - w - 6; if (l < 6) l = 6;
-            if (t + h > window.innerHeight) t = window.innerHeight - h - 6; if (t < 6) t = 6;
+            const vp = document.getElementById('viewport-inner');
+            const parentW = vp ? vp.clientWidth : window.innerWidth; const parentH = vp ? vp.clientHeight : window.innerHeight;
+            const w = graphPanel.clientWidth; const h = graphPanel.clientHeight;
+            let l = graphPanel.offsetLeft; let t = graphPanel.offsetTop;
+            const leftLimit = 6; const rightLimit = Math.max(leftLimit, parentW - w - 6); const topLimit = 6; const bottomLimit = Math.max(topLimit, parentH - h - 6);
+            if (l < leftLimit) l = leftLimit; if (l > rightLimit) l = rightLimit;
+            if (t < topLimit) t = topLimit; if (t > bottomLimit) t = bottomLimit;
             graphPanel.style.left = l + 'px'; graphPanel.style.top = t + 'px'; graphPanel.style.right = 'auto'; graphPanel.style.bottom = 'auto';
         }
         function resizeGraphCanvas() {
@@ -797,24 +848,29 @@
             let isResizing = false, resizeStart = {x:0,y:0,width:0,height:0}, aspect = graphPanel.clientWidth / graphPanel.clientHeight;
 
             const clampPanelToWindow = () => {
-                const rect = graphPanel.getBoundingClientRect();
-                let l = rect.left; let t = rect.top; let w = rect.width; let h = rect.height;
-                if (l + w > window.innerWidth) l = window.innerWidth - w - 6; if (l < 6) l = 6;
-                if (t + h > window.innerHeight) t = window.innerHeight - h - 6; if (t < 6) t = 6;
+                const vp = document.getElementById('viewport-inner');
+                const parentW = vp ? vp.clientWidth : window.innerWidth; const parentH = vp ? vp.clientHeight : window.innerHeight;
+                const w = graphPanel.clientWidth; const h = graphPanel.clientHeight;
+                let l = graphPanel.offsetLeft; let t = graphPanel.offsetTop;
+                const leftLimit = 6; const rightLimit = Math.max(leftLimit, parentW - w - 6); const topLimit = 6; const bottomLimit = Math.max(topLimit, parentH - h - 6);
+                if (l < leftLimit) l = leftLimit; if (l > rightLimit) l = rightLimit;
+                if (t < topLimit) t = topLimit; if (t > bottomLimit) t = bottomLimit;
                 graphPanel.style.left = l + 'px'; graphPanel.style.top = t + 'px'; graphPanel.style.right = 'auto'; graphPanel.style.bottom = 'auto';
             };
 
-            function startDrag(e) { e.preventDefault(); dragHandle.setPointerCapture(e.pointerId); isDragging = true; dragStart.x = e.clientX; dragStart.y = e.clientY; const rect = graphPanel.getBoundingClientRect(); panelStart.left = rect.left; panelStart.top = rect.top; }
-            function onDrag(e) { if(!isDragging) return; const dx = e.clientX - dragStart.x; const dy = e.clientY - dragStart.y; graphPanel.style.left = Math.max(6, Math.min(window.innerWidth - graphPanel.clientWidth - 6, panelStart.left + dx)) + 'px'; graphPanel.style.top = Math.max(6, Math.min(window.innerHeight - graphPanel.clientHeight - 6, panelStart.top + dy)) + 'px'; }
+            function startDrag(e) { e.preventDefault(); dragHandle.setPointerCapture(e.pointerId); isDragging = true; dragStart.x = e.clientX; dragStart.y = e.clientY; // Use unscaled offsets for start position (CSS left/top values)
+                panelStart.left = graphPanel.offsetLeft; panelStart.top = graphPanel.offsetTop; }
+            function onDrag(e) { if(!isDragging) return; const dx = e.clientX - dragStart.x; const dy = e.clientY - dragStart.y; const vp = document.getElementById('viewport-inner'); const vpRect = vp ? vp.getBoundingClientRect() : null; const scale = (DESKTOP_WIDTH && vp) ? (vpRect.width / DESKTOP_WIDTH) : 1; // compute unscaled delta
+                const dxUnscaled = dx / scale; const dyUnscaled = dy / scale; const parentWidth = vp ? vp.clientWidth : window.innerWidth; const parentHeight = vp ? vp.clientHeight : window.innerHeight; const leftLimit = 6; const rightLimit = Math.max(leftLimit, parentWidth - graphPanel.clientWidth - 6); const topLimit = 6; const bottomLimit = Math.max(topLimit, parentHeight - graphPanel.clientHeight - 6); const newLeft = Math.max(leftLimit, Math.min(rightLimit, Math.round(panelStart.left + dxUnscaled))); const newTop = Math.max(topLimit, Math.min(bottomLimit, Math.round(panelStart.top + dyUnscaled))); graphPanel.style.left = newLeft + 'px'; graphPanel.style.top = newTop + 'px'; }
             function endDrag(e) { try { dragHandle.releasePointerCapture(e.pointerId); } catch(_){} isDragging=false; }
 
             function startResize(e) { e.preventDefault(); resizer.setPointerCapture(e.pointerId); isResizing = true; resizeStart.x = e.clientX; resizeStart.y = e.clientY; resizeStart.width = graphPanel.clientWidth; resizeStart.height = graphPanel.clientHeight; aspect = resizeStart.width / resizeStart.height; }
-            function onResize(e) { if(!isResizing) return; const dx = e.clientX - resizeStart.x; let newWidth = Math.max(240, resizeStart.width + dx); // min width
-                let newHeight = Math.max(120, newWidth / aspect); // maintain aspect
-                // limit to window size
-                const rect = graphPanel.getBoundingClientRect(); const left = rect.left; const maxW = window.innerWidth - left - 12; const maxH = window.innerHeight - rect.top - 12;
-                if(newWidth > maxW) { newWidth = maxW; newHeight = Math.max(120, newWidth / aspect); }
-                if(newHeight > maxH) { newHeight = maxH; newWidth = Math.max(240, newHeight * aspect); }
+            function onResize(e) { if(!isResizing) return; const dx = e.clientX - resizeStart.x; const vp = document.getElementById('viewport-inner'); const vpRect = vp ? vp.getBoundingClientRect() : null; const scale = (DESKTOP_WIDTH && vpRect) ? (vpRect.width / DESKTOP_WIDTH) : 1; let newWidth = Math.max(240, Math.round(resizeStart.width + dx / scale)); // min width (in unscaled units)
+                let newHeight = Math.max(120, Math.round(newWidth / aspect)); // maintain aspect
+                // limit to viewport-inner size in unscaled units
+                const rect = graphPanel.getBoundingClientRect(); const left = graphPanel.offsetLeft; const parentW = vp ? vp.clientWidth : window.innerWidth; const parentH = vp ? vp.clientHeight : window.innerHeight; const maxW = Math.max(240, parentW - left - 12); const maxH = Math.max(120, parentH - graphPanel.offsetTop - 12);
+                if(newWidth > maxW) { newWidth = maxW; newHeight = Math.max(120, Math.round(newWidth / aspect)); }
+                if(newHeight > maxH) { newHeight = maxH; newWidth = Math.max(240, Math.round(newHeight * aspect)); }
                 graphPanel.style.width = newWidth + 'px'; graphPanel.style.height = newHeight + 'px'; resizeGraphCanvas(); }
             function endResize(e) { try { resizer.releasePointerCapture(e.pointerId); } catch(_){} isResizing=false; }
 
@@ -967,8 +1023,9 @@
             document.getElementById('fire-btn').addEventListener('click', () => { fireBall(); document.getElementById('fire-btn').blur(); });
             window.addEventListener('keydown', e => { if(e.code === 'Space') { e.preventDefault(); fireBall(); } });
             window.addEventListener('resize', () => {
-                camera.aspect = window.innerWidth/window.innerHeight; camera.updateProjectionMatrix();
-                renderer.setSize(window.innerWidth, window.innerHeight); labelRenderer.setSize(window.innerWidth, window.innerHeight);
+                // Keep initial desktop aspect ratio across devices
+                resizeViewport();
+                updateUiScale();
                 // adjust graph canvas
                 if (graphCanvas) {
                     const dpr = window.devicePixelRatio || 1; graphCanvas.width = Math.floor(graphCanvas.clientWidth * dpr); graphCanvas.height = Math.floor(graphCanvas.clientHeight * dpr);
