@@ -1,8 +1,13 @@
+# FILDX — Fielding Training Device Simulator Documentation
 <p align="center">
   <img src="Assets/fldx_thumbnail.png" alt="FLDX" width="640" />
 </p>
 
-# FILDX — Fielding Training Device Simulator Documentation
+> NOTE: GitHub README does not natively render LaTeX math. If you want to view this documentation with rendered mathematical equations, open the project docs viewer:
+>
+> - Viewer: `docs/index.html` (works if hosted via GitHub Pages or opened in a local dev server)
+>
+> Alternatively, enable GitHub Pages and point it to the /docs folder so math is rendered properly on the hosted site.
 
 Version: 1.0
 
@@ -65,46 +70,46 @@ Assumptions:
 
 State representation per ball:
 
-- Position: $\\mathbf{x}(t) = (x, y, z)$
-- Velocity: $\\mathbf{v}(t)$
-- Angular velocity (spin): $\\boldsymbol{\\omega}(t)$ (vector)
+- Position: $\mathbf{x}(t) = (x, y, z)$
+- Velocity: $\mathbf{v}(t)$
+- Angular velocity (spin): $\boldsymbol{\omega}(t)$ (vector)
 
 Forces considered:
 
-- Gravity: $\\mathbf{F}_g = m \\mathbf{g}$ where $\\mathbf{g} = (0,0,-g)$ and $g \\approx 9.81\\ \\text{m/s}^2$.
-- Aerodynamic drag: $\\mathbf{F}_d = -\\tfrac{1}{2} \\rho A C_d ||\\mathbf{v}_\\text{rel}|| \\mathbf{v}_\\text{rel}$.
-- Magnus lift: $\\mathbf{F}_m = \\tfrac{1}{2} \\rho A C_l (\\boldsymbol{\\hat{\\omega}} \\times \\mathbf{v}_\\text{rel}) ||\\mathbf{v}_\\text{rel}||$ (or more detailed dependance $C_l = f(\\text{spin parameter})$).
+- Gravity: $\mathbf{F}_g = m \mathbf{g}$ where $\mathbf{g} = (0,0,-g)$ and $g \approx 9.81\ \text{m/s}^2$.
+- Aerodynamic drag: $\mathbf{F}_d = -\tfrac{1}{2} \rho A C_d ||\mathbf{v}_{\text{rel}}|| \mathbf{v}_{\text{rel}}$.
+- Magnus lift: $\mathbf{F}_m = \tfrac{1}{2} \rho A C_l (\boldsymbol{\hat{\omega}} \times \mathbf{v}_{\text{rel}}) ||\mathbf{v}_{\text{rel}}||$ (or more detailed dependance $C_l = f(\text{spin parameter})$).
 
-Where:
-- $\\rho$ is air density (1.225 kg/m^3 at sea level),
-- $A = \\pi r^2$ is projected area,
+ Where:
+ - $\rho$ is air density (1.225 kg/m^3 at sea level),
+ - $A = \pi r^2$ is projected area,
 - $C_d$ is drag coefficient (function of Reynolds number; approximate constant 0.3–0.5 for a cricket ball depending on seam/roughness),
 - $C_l$ is lift coefficient depending on spin rate and Reynolds number.
 
-Spin parameter (nondimensional): $S = \\dfrac{r \\|\\boldsymbol{\\omega}\\|}{\\|\\mathbf{v}\\|}$.
+Spin parameter (nondimensional): $S = \dfrac{r \|\boldsymbol{\omega}\|}{\|\mathbf{v}\|}$.
 
 Equations of motion (ODE):
 
-$$m \\dfrac{d\\mathbf{v}}{dt} = m\\mathbf{g} + \\mathbf{F}_d + \\mathbf{F}_m$$
-$$\\dfrac{d\\mathbf{x}}{dt} = \\mathbf{v}$$
+$$m \dfrac{d\mathbf{v}}{dt} = m\mathbf{g} + \mathbf{F}_d + \mathbf{F}_m$$
+$$\dfrac{d\mathbf{x}}{dt} = \mathbf{v}$$
 
 Angular state update (simple model): we may optionally model spin decay using an exponential damping:
 
-$$\\dfrac{d\\boldsymbol{\\omega}}{dt} = -k_\\omega \\boldsymbol{\\omega}$$
+$$\dfrac{d\boldsymbol{\omega}}{dt} = -k_\omega \boldsymbol{\omega}$$
 
-with $k_\\omega$ a small damping constant.
+with $k_\omega$ a small damping constant.
 
 Collision/bounce model uses impulse-based response (coefficient of restitution $e$) and friction (tangential impulse) to transfer linear/angular momentum during contact.
 
 Bounce math (idealized instantaneous collision):
 
-Let the normal at contact be $\\mathbf{n}$ (pointing out of surface). Decompose pre-impact velocity at contact point into normal and tangential components and compute post-impact impulses.
+Let the normal at contact be $\mathbf{n}$ (pointing out of surface). Decompose pre-impact velocity at contact point into normal and tangential components and compute post-impact impulses.
 
-Normal impulse magnitude $J_n$ enforces relative normal velocity $v_n^+$ satisfying $v_n^+ = -e\\, v_n^-$. 
+Normal impulse magnitude $J_n$ enforces relative normal velocity $v_n^+$ satisfying $v_n^+ = -e\, v_n^-$. 
 
-Tangential impulse $\\mathbf{J}_t$ limited by Coulomb friction: $\\|\\mathbf{J}_t\\| \\leq \\mu J_n$ where $\\mu$ is friction coefficient.
+Tangential impulse $\mathbf{J}_t$ limited by Coulomb friction: $\|\mathbf{J}_t\| \leq \mu J_n$ where $\mu$ is friction coefficient.
 
-These impulses update linear velocity and angular velocity accordingly. For a ball (mass $m$, moment of inertia $I = \\frac{2}{5} m r^2$ for a solid sphere; for cricket ball this is a hollow sphere approximation) the impulse updates are standard rigid-body impulse formulas.
+These impulses update linear velocity and angular velocity accordingly. For a ball (mass $m$, moment of inertia $I = \frac{2}{5} m r^2$ for a solid sphere; for cricket ball this is a hollow sphere approximation) the impulse updates are standard rigid-body impulse formulas.
 
 ---
 
@@ -114,7 +119,7 @@ Goals: stable, deterministic, easy to tune, accurate enough for training device 
 
 Key choices:
 
-- Time stepping: fixed time step integrator (recommended) for determinism. Typical step size: $\\Delta t = 1/200\\ \\text{s}$ to $1/100\\ \\text{s}$ depending on desired fidelity and performance.
+- Time stepping: fixed time step integrator (recommended) for determinism. Typical step size: $\Delta t = 1/200\ \text{s}$ to $1/100\ \text{s}$ depending on desired fidelity and performance.
 - Integrator: semi-implicit (symplectic) Euler or a second-order integrator (RK2) for translational dynamics. Semi-implicit Euler is fast and stable for this usage.
 - Collision detection: simple analytic tests for sphere-plane and sphere-convex shapes (device surfaces, floors). Use continuous collision detection (CCD) for high-speed passes: compute time of impact inside time step by solving sphere-plane intersection along motion.
 - Collision response: impulse-based with normal restitution and tangential friction. Resolve penetrations by projecting out along the normal and applying a velocity-level impulse.
@@ -142,22 +147,22 @@ for each frame:
 
 Integrator details (semi-implicit Euler):
 
-1. Compute forces at current state: $\\mathbf{F}(t)$
-2. Update velocity: $\\mathbf{v}_{t+\\Delta t} = \\mathbf{v}_t + \\Delta t \, \\mathbf{F}(t) / m$
-3. Update position: $\\mathbf{x}_{t+\\Delta t} = \\mathbf{x}_t + \\Delta t \, \\mathbf{v}_{t+\\Delta t}$
+1. Compute forces at current state: $\mathbf{F}(t)$
+2. Update velocity: $\mathbf{v}_{t+\Delta t} = \mathbf{v}_t + \Delta t \, \mathbf{F}(t) / m$
+3. Update position: $\mathbf{x}_{t+\Delta t} = \mathbf{x}_t + \Delta t \, \mathbf{v}_{t+\Delta t}$
 
 This treats drag/Magnus using current velocity (explicit), but remains stable if dt is sufficiently small.
 
 Collision impulse computation (sphere-plane simplified):
 
-1. Relative normal velocity at contact: $v_n = \\mathbf{v} \\cdot \\mathbf{n}$.
+1. Relative normal velocity at contact: $v_n = \mathbf{v} \cdot \mathbf{n}$.
 2. Desired post-collision normal velocity: $v_n^+ = -e v_n^-$.
 3. Impulse magnitude: $J_n = -(1+e) v_n / (1/m + 0)$ (sphere plane: plane has infinite mass), so $J_n = -(1+e) m v_n$.
 4. Tangential impulse computed from relative tangential velocity and friction threshold.
 
-For more precise response involving ball spin, compute relative velocity at contact point including rotational component: $\\mathbf{v}_c = \\mathbf{v} + \\boldsymbol{\\omega} \\times (-r \\mathbf{n})$.
+For more precise response involving ball spin, compute relative velocity at contact point including rotational component: $\mathbf{v}_c = \mathbf{v} + \boldsymbol{\omega} \times (-r \mathbf{n})$.
 
-Update angular velocity using $\\Delta \\boldsymbol{\\omega} = I^{-1} (\\mathbf{r} \\times \\mathbf{J})$.
+Update angular velocity using $\Delta \boldsymbol{\omega} = I^{-1} (\mathbf{r} \times \mathbf{J})$.
 
 ---
 
@@ -281,13 +286,13 @@ Parallelism:
 
 **Appendix: Key Equations and Constants**
 
-- Gravity: $g = 9.81\\ \mathrm{m/s^2}$
-- Air density: $\\rho = 1.225\\ \mathrm{kg/m^3}$ (sea level)
-- Projected area: $A = \\pi r^2$.
-- Drag: $\\mathbf{F}_d = -\\tfrac{1}{2}\\rho A C_d ||\\mathbf{v}|| \\mathbf{v}$.
-- Magnus (simple): $\\mathbf{F}_m \\propto (\\boldsymbol{\\omega} \\times \\mathbf{v})$ with scale depending on $C_l$.
+- Gravity: $g = 9.81\ \mathrm{m/s^2}$
+- Air density: $\rho = 1.225\ \mathrm{kg/m^3}$ (sea level)
+- Projected area: $A = \pi r^2$.
+- Drag: $\mathbf{F}_d = -\tfrac{1}{2}\rho A C_d ||\mathbf{v}|| \mathbf{v}$.
+- Magnus (simple): $\mathbf{F}_m \propto (\boldsymbol{\omega} \times \mathbf{v})$ with scale depending on $C_l$.
 
-Moment of inertia of solid sphere: $I = \\tfrac{2}{5} m r^2$ (use for angular impulse updates).
+Moment of inertia of solid sphere: $I = \tfrac{2}{5} m r^2$ (use for angular impulse updates).
 
 ---
 
