@@ -167,12 +167,65 @@
         #start-simulator-btn:active {
             transform: translateY(0);
         }
+        #desktop-note {
+            color: #888;
+            font-size: 0.85rem;
+            margin-top: 20px;
+            opacity: 0.6;
+        }
         #main-viewport {
             opacity: 0;
             transition: opacity 0.5s ease-in;
         }
         #main-viewport.visible {
             opacity: 1;
+        }
+
+        /* Small device styles */
+        @media (max-width: 768px) {
+            #splash-content {
+                padding: 20px;
+                max-width: 90%;
+            }
+            #splash-image {
+                max-width: 280px;
+                margin-bottom: 20px;
+            }
+            #splash-description {
+                font-size: 0.9rem;
+                line-height: 1.5;
+                margin-bottom: 30px;
+                padding: 0 10px;
+            }
+            #start-simulator-btn {
+                padding: 12px 32px;
+                font-size: 0.95rem;
+            }
+            #desktop-note {
+                font-size: 0.75rem;
+                margin-top: 15px;
+            }
+        }
+        @media (max-width: 480px) {
+            #splash-content {
+                padding: 15px;
+            }
+            #splash-image {
+                max-width: 240px;
+                margin-bottom: 15px;
+            }
+            #splash-description {
+                font-size: 0.8rem;
+                margin-bottom: 25px;
+            }
+            #start-simulator-btn {
+                padding: 10px 24px;
+                font-size: 0.85rem;
+            }
+            #desktop-note {
+                font-size: 0.7rem;
+                margin-top: 12px;
+            }
         }
     </style>
     
@@ -197,6 +250,7 @@
                 Customize machine parameters, adjust physics properties, and track ball trajectory in real-time.
             </p>
             <button id="start-simulator-btn">Start Simulator</button>
+            <p id="desktop-note">Use on desktop for better experience</p>
         </div>
     </div>
 
