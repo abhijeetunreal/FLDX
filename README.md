@@ -3,11 +3,7 @@
   <img src="Assets/fldx_thumbnail.png" alt="FLDX" width="640" />
 </p>
 
-> NOTE: GitHub README does not natively render LaTeX math. If you want to view this documentation with rendered mathematical equations, open the project docs viewer:
->
-> - Viewer: `docs/index.html` (works if hosted via GitHub Pages or opened in a local dev server)
->
-> Alternatively, enable GitHub Pages and point it to the /docs folder so math is rendered properly on the hosted site.
+# FILDX — Fielding Training Device Simulator Documentation
 
 Version: 1.0
 
