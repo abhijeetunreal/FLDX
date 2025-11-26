@@ -89,9 +89,21 @@
             font-family: 'Consolas', monospace; font-size: 11px;
             color: #ffff00; text-shadow: 1px 1px 2px black;
             pointer-events: none; white-space: nowrap;
-            background: rgba(0,0,0,0.5); padding: 2px 4px; border-radius: 3px;
+            background: rgba(0,0,0,0.45); padding: 2px 6px; border-radius: 3px;
+            opacity: 0.3; /* slightly lowered to let the ball show through */
+            transform-origin: center bottom; /* helps us keep it visually stable */
         }
         .label-row { display: flex; justify-content: space-between; align-items: center; }
+        /* LIVE GRAPH PANEL */
+        #graph-panel { position: absolute; right: 20px; bottom: 100px; width: 440px; height: 220px; background: rgba(0,0,0,0.6); border-radius: 8px; padding: 10px; display: none; pointer-events: auto; z-index: 30; border: 1px solid #334455; }
+        #graph-panel .graph-drag-handle { position: absolute; top: 0; left: 0; right: 0; height: 28px; cursor: move; }
+        #graph-panel .graph-resizer { position: absolute; bottom: 6px; right: 6px; width: 16px; height: 16px; background: rgba(255,255,255,0.06); border-radius: 3px; cursor: se-resize; z-index: 35; }
+        #graph-panel canvas { width: 100%; height: 100%; display: block; }
+        #graph-legend { position: absolute; top: 6px; left: 8px; font-family: monospace; font-size: 11px; color: #cde; /* pointer-events: none; */ display: flex; gap: 12px; align-items: center; }
+        #graph-legend .legend-list { display:flex; gap:8px; align-items:center; }
+        #graph-legend .legend-item { display:flex; gap:6px; align-items:center; color:#cde; }
+        #graph-legend .legend-swatch { width:12px; height:12px; border-radius:2px; display:inline-block; }
+        #graph-legend .legend-live { margin-left:12px; font-weight:bold; color:#fff; }
     </style>
     
     <script type="importmap">
@@ -190,6 +202,10 @@
             </div>
 
             <button id="fire-btn" class="main-btn">FIRE (SPACE)</button>
+            <div style="display:flex; gap:8px; margin-top:10px;">
+                <button id="btn-toggle-graph" class="reset-icon" title="Toggle Mechanics Graph">📈</button>
+                <button id="btn-clear-graphs" class="reset-icon" title="Clear Graph Data">✖</button>
+            </div>
         </div>
 
         <div id="physics-panel">
@@ -216,6 +232,12 @@
             <span>D: <span id="stat-dist">--</span></span>
             <span>H: <span id="stat-height">--</span></span>
             <span id="stat-status" style="color:#888">Ready</span>
+        </div>
+        <div id="graph-panel">
+            <div class="graph-drag-handle" title="Drag graph panel"></div>
+            <div id="graph-legend"></div>
+            <canvas id="graph-canvas" width="880" height="440"></canvas>
+            <div class="graph-resizer" title="Resize graph panel"></div>
         </div>
     </div>
 
@@ -255,6 +277,9 @@
 
         let scene, camera, renderer, labelRenderer, world;
         let balls = [];
+        let graphPanel, graphCanvas, graphCtx, graphVisible = false;
+        let lastGraphData = null; // persistent data after ball removal until next fire
+        const GRAPH_MAX_SECONDS = 15; // show last 20 seconds in graph
         let matGround, matPitch, matBall, contactGrass, contactPitch;
         let machineBase, machineHead, machineRod, machineSwivel;
         let grassMesh, playerMarker; 
@@ -592,9 +617,18 @@
             scene.add(trailLine);
 
             const div = document.createElement('div'); div.className = 'ball-label'; div.textContent = '...';
-            const label = new CSS2DObject(div); label.position.set(0, 0.2, 0); mesh.add(label);
+            const label = new CSS2DObject(div);
+            // Initialize label at ball world position and place it slightly above the ball
+            label.position.copy(mesh.position);
+            label.position.y += 0.2; // keep the label slightly above the ball
+            // Add label directly to scene (so it doesn't inherit the ball's rotation)
+            scene.add(label);
 
-            balls.push({ mesh, body, trailLine, label, trailPos: positions, trailIdx: 0, created: Date.now(), isDead: false, maxH: 0 });
+            // attach per-ball graph buffer for runtime sampling
+            // Reset lastGraphData now that a new ball is being fired (start fresh)
+            lastGraphData = null;
+            const ballObj = { mesh, body, trailLine, label, trailPos: positions, trailIdx: 0, created: Date.now(), isDead: false, maxH: 0, graphData: [] };
+            balls.push(ballObj);
         }
 
         function removeBall(b) {
@@ -603,7 +637,9 @@
             scene.remove(b.mesh);
             scene.remove(b.trailLine);
             b.trailLine.geometry.dispose();
-            if (b.label) { b.mesh.remove(b.label); if (b.label.element && b.label.element.parentNode) b.label.element.parentNode.removeChild(b.label.element); }
+            if (b.label) { scene.remove(b.label); if (b.label.element && b.label.element.parentNode) b.label.element.parentNode.removeChild(b.label.element); }
+            // Preserve last graph data so the graph remains on screen after the ball stops
+            if (b.graphData && b.graphData.length > 0) lastGraphData = b.graphData.slice();
             balls = balls.filter(ball => ball !== b);
         }
 
@@ -672,6 +708,21 @@
                     else { b.label.element.textContent = `${dist.toFixed(1)}m`; b.label.element.style.color = '#00ff00'; }
                 }
 
+                // Stabilize the label: keep the label near the ball's world position and slightly above it
+                if (b.label) {
+                    b.label.position.copy(b.mesh.position);
+                    b.label.position.y += 0.28;
+                    // Ensure label faces camera and stays easy to read
+                    if (camera) b.label.quaternion.copy(camera.quaternion);
+                }
+
+                // Always append graph data for the ball (trim to last GRAPH_MAX_SECONDS)
+                if (b.graphData) {
+                    const ts = (Date.now() - b.created) / 1000.0;
+                    // Keep full buffer (do NOT rotate/truncate) so 0..GRAPH_MAX_SECONDS from the start always maps to the initial time window
+                    b.graphData.push({ t: ts, speed: speed * 3.6, y: b.mesh.position.y, dist: dist, ang: b.body.angularVelocity.length() });
+                }
+
                 if (b === balls[balls.length-1]) {
                     document.getElementById('stat-vel').textContent = (speed*3.6).toFixed(1) + ' km/h';
                     document.getElementById('stat-dist').textContent = dist.toFixed(1) + ' m';
@@ -691,6 +742,7 @@
 
             renderer.render(scene, camera);
             labelRenderer.render(scene, camera);
+            if (graphVisible) renderGraph();
         }
 
         function updateSliderOnly(id, key, dispId, val, unit='') {
@@ -701,6 +753,175 @@
 
         function updatePhysicsInput(id, key, dispId, val, unit='') {
             updateSliderOnly(id, key, dispId, val, unit);
+        }
+
+        // --- LIVE GRAPH HELPERS ---
+        function clampPanelToWindow() {
+            if (!graphPanel) return;
+            const rect = graphPanel.getBoundingClientRect(); let l = rect.left, t = rect.top, w = rect.width, h = rect.height;
+            if (l + w > window.innerWidth) l = window.innerWidth - w - 6; if (l < 6) l = 6;
+            if (t + h > window.innerHeight) t = window.innerHeight - h - 6; if (t < 6) t = 6;
+            graphPanel.style.left = l + 'px'; graphPanel.style.top = t + 'px'; graphPanel.style.right = 'auto'; graphPanel.style.bottom = 'auto';
+        }
+        function resizeGraphCanvas() {
+            if (!graphCanvas) return;
+            const dpr = window.devicePixelRatio || 1;
+            graphCanvas.width = Math.floor(graphCanvas.clientWidth * dpr);
+            graphCanvas.height = Math.floor(graphCanvas.clientHeight * dpr);
+            if (graphCtx) graphCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        }
+        function createGraphPanel() {
+            graphPanel = document.getElementById('graph-panel');
+            graphCanvas = document.getElementById('graph-canvas');
+            graphCtx = graphCanvas.getContext('2d');
+            const legend = document.getElementById('graph-legend');
+            if (legend) {
+                // static color legend with a live-value container to the right
+                legend.innerHTML = `
+                    <div class="legend-list">
+                        <div class="legend-item"><span class="legend-swatch" style="background:rgba(255,145,0,0.95)"></span>Speed (km/h)</div>
+                        <div class="legend-item"><span class="legend-swatch" style="background:rgba(30,144,255,0.95)"></span>Height (m)</div>
+                        <div class="legend-item"><span class="legend-swatch" style="background:rgba(0,255,128,0.95)"></span>Dist (m)</div>
+                        <div class="legend-item"><span class="legend-swatch" style="background:rgba(255,51,102,0.95)"></span>Spin</div>
+                    </div>
+                    <div class="legend-live" id="graph-legend-live">--</div>
+                `;
+            }
+            // handle high DPI and initial sizing
+            resizeGraphCanvas();
+
+            // Drag & Resize handlers
+            const dragHandle = graphPanel.querySelector('.graph-drag-handle');
+            const resizer = graphPanel.querySelector('.graph-resizer');
+            let isDragging = false, dragStart = {x:0,y:0}, panelStart = {left:0,top:0};
+            let isResizing = false, resizeStart = {x:0,y:0,width:0,height:0}, aspect = graphPanel.clientWidth / graphPanel.clientHeight;
+
+            const clampPanelToWindow = () => {
+                const rect = graphPanel.getBoundingClientRect();
+                let l = rect.left; let t = rect.top; let w = rect.width; let h = rect.height;
+                if (l + w > window.innerWidth) l = window.innerWidth - w - 6; if (l < 6) l = 6;
+                if (t + h > window.innerHeight) t = window.innerHeight - h - 6; if (t < 6) t = 6;
+                graphPanel.style.left = l + 'px'; graphPanel.style.top = t + 'px'; graphPanel.style.right = 'auto'; graphPanel.style.bottom = 'auto';
+            };
+
+            function startDrag(e) { e.preventDefault(); dragHandle.setPointerCapture(e.pointerId); isDragging = true; dragStart.x = e.clientX; dragStart.y = e.clientY; const rect = graphPanel.getBoundingClientRect(); panelStart.left = rect.left; panelStart.top = rect.top; }
+            function onDrag(e) { if(!isDragging) return; const dx = e.clientX - dragStart.x; const dy = e.clientY - dragStart.y; graphPanel.style.left = Math.max(6, Math.min(window.innerWidth - graphPanel.clientWidth - 6, panelStart.left + dx)) + 'px'; graphPanel.style.top = Math.max(6, Math.min(window.innerHeight - graphPanel.clientHeight - 6, panelStart.top + dy)) + 'px'; }
+            function endDrag(e) { try { dragHandle.releasePointerCapture(e.pointerId); } catch(_){} isDragging=false; }
+
+            function startResize(e) { e.preventDefault(); resizer.setPointerCapture(e.pointerId); isResizing = true; resizeStart.x = e.clientX; resizeStart.y = e.clientY; resizeStart.width = graphPanel.clientWidth; resizeStart.height = graphPanel.clientHeight; aspect = resizeStart.width / resizeStart.height; }
+            function onResize(e) { if(!isResizing) return; const dx = e.clientX - resizeStart.x; let newWidth = Math.max(240, resizeStart.width + dx); // min width
+                let newHeight = Math.max(120, newWidth / aspect); // maintain aspect
+                // limit to window size
+                const rect = graphPanel.getBoundingClientRect(); const left = rect.left; const maxW = window.innerWidth - left - 12; const maxH = window.innerHeight - rect.top - 12;
+                if(newWidth > maxW) { newWidth = maxW; newHeight = Math.max(120, newWidth / aspect); }
+                if(newHeight > maxH) { newHeight = maxH; newWidth = Math.max(240, newHeight * aspect); }
+                graphPanel.style.width = newWidth + 'px'; graphPanel.style.height = newHeight + 'px'; resizeGraphCanvas(); }
+            function endResize(e) { try { resizer.releasePointerCapture(e.pointerId); } catch(_){} isResizing=false; }
+
+            if (dragHandle) { dragHandle.addEventListener('pointerdown', startDrag); window.addEventListener('pointermove', onDrag); window.addEventListener('pointerup', endDrag); }
+            if (resizer) { resizer.addEventListener('pointerdown', startResize); window.addEventListener('pointermove', onResize); window.addEventListener('pointerup', endResize); }
+        }
+
+        function toggleGraphPanel() {
+            graphVisible = !graphVisible;
+            if (graphPanel) graphPanel.style.display = graphVisible ? 'block' : 'none';
+            if (!graphVisible) {
+                // optional: clear the canvas when hidden
+                if (graphCtx) { graphCtx.clearRect(0,0,graphCanvas.width, graphCanvas.height); }
+            } else {
+                // compute sizes and transform when panel becomes visible
+                if (graphCanvas) {
+                    const dpr = window.devicePixelRatio || 1;
+                    graphCanvas.width = Math.floor(graphCanvas.clientWidth * dpr);
+                    graphCanvas.height = Math.floor(graphCanvas.clientHeight * dpr);
+                    // switch to CSS pixels coordinates (scale by dpr)
+                    if (graphCtx) graphCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+                }
+                // Force a render of the graph immediately after showing it
+                renderGraph();
+                if (clampPanelToWindow) clampPanelToWindow();
+            }
+        }
+
+        function clearGraphData() {
+            balls.forEach(b => { if (b.graphData) b.graphData = []; });
+            lastGraphData = null;
+            if (graphCtx) graphCtx.clearRect(0,0,graphCanvas.width, graphCanvas.height);
+        }
+
+        function renderGraph() {
+            if (!graphCanvas || !graphCtx) return;
+            // pick latest ball with graph data or the last ball
+            const b = balls.length ? balls[balls.length - 1] : (lastGraphData ? { graphData: lastGraphData } : null);
+            if (!b || !b.graphData || b.graphData.length === 0) {
+                graphCtx.clearRect(0,0,graphCanvas.width, graphCanvas.height);
+                return;
+            }
+            const data = b.graphData;
+            const dpr = window.devicePixelRatio || 1;
+            const w = graphCanvas.width / dpr; const h = graphCanvas.height / dpr;
+            // Margins to keep axes and labels away from the plotting area
+            const marginLeft = 48; const marginRight = 12; const marginTop = 12; const marginBottom = 26;
+            const innerW = Math.max(16, w - marginLeft - marginRight);
+            const innerH = Math.max(16, h - marginTop - marginBottom);
+            graphCtx.clearRect(0,0,w,h);
+            // draw grid and axes
+            graphCtx.strokeStyle = 'rgba(255,255,255,0.16)'; graphCtx.lineWidth = 1;
+            for (let i=0;i<=4;i++) {
+                const y = Math.round(marginTop + innerH * (i/4));
+                graphCtx.beginPath(); graphCtx.moveTo(marginLeft, y); graphCtx.lineTo(marginLeft + innerW, y); graphCtx.stroke();
+            }
+            // clear left area for y-labels so grid lines don't overlap labels
+            graphCtx.clearRect(0, 0, marginLeft, h);
+            // compute fixed time range: from 0 to GRAPH_MAX_SECONDS (do not rescale)
+            const tmin = 0; const tmax = GRAPH_MAX_SECONDS;
+            const xForT = t => marginLeft + ((t - tmin) / (tmax - tmin || 1)) * innerW;
+            // fixed Y axis: 0..160 (user requested). All metrics are plotted within this fixed scale
+            const Y_MAX = 160;
+            const yForVal = (val) => marginTop + innerH - (Math.min(val, Y_MAX) / Y_MAX) * innerH;
+
+            // helpers to draw series
+            const drawSeries = (key, color, maxVal) => {
+                graphCtx.beginPath(); graphCtx.strokeStyle = color; graphCtx.lineWidth = 2; graphCtx.lineJoin = 'round'; let started=false;
+                data.forEach(pt => { if (pt.t < tmin || pt.t > tmax) return; const x = xForT(pt.t); const y = yForVal(pt[key], maxVal); if (!started) { graphCtx.moveTo(x,y); started=true; } else graphCtx.lineTo(x,y); });
+                graphCtx.stroke();
+            };
+
+            // draw thicker, semi-opaque lines for better visibility; use fixed Y_MAX scale
+            drawSeries('speed', 'rgba(255,145,0,0.95)', Y_MAX);
+            drawSeries('y', 'rgba(30,144,255,0.95)', Y_MAX);
+            drawSeries('dist', 'rgba(0,255,128,0.95)', Y_MAX);
+            drawSeries('ang', 'rgba(255,51,102,0.95)', Y_MAX);
+
+            // draw x-axis time ticks and labels (fixed 0..GRAPH_MAX_SECONDS)
+            graphCtx.fillStyle = 'rgba(255,255,255,0.7)'; graphCtx.font = '11px monospace'; graphCtx.textAlign = 'center';
+            // draw more frequent time markers (every 2 seconds)
+            const tickSpacing = 2; const ticks = Math.floor((tmax - tmin) / tickSpacing) + 1;
+            for (let i=0;i<ticks;i++) {
+                const tt = tmin + i * tickSpacing; const tx = xForT(tt);
+                graphCtx.beginPath(); graphCtx.strokeStyle = 'rgba(255,255,255,0.08)'; graphCtx.moveTo(tx, marginTop + innerH + 2); graphCtx.lineTo(tx, marginTop + innerH + 8); graphCtx.stroke();
+                graphCtx.fillText(tt.toFixed(0) + 's', tx, marginTop + innerH + 18);
+            }
+
+            // draw y-axis ticks & labels (0..Y_MAX)
+            graphCtx.textAlign = 'right'; graphCtx.fillStyle = 'rgba(255,255,255,0.8)';
+            const yTicks = 5;
+            for (let i=0;i<yTicks;i++) {
+                const val = Math.round(i * (Y_MAX / (yTicks-1)));
+                const y = Math.round(marginTop + innerH - (val / Y_MAX) * innerH);
+                graphCtx.beginPath(); graphCtx.moveTo(36, y); graphCtx.lineTo(42, y); graphCtx.stroke();
+                graphCtx.fillText(val.toString(), 34, y+3);
+            }
+            // draw Y axis label
+            graphCtx.save(); graphCtx.translate(8, h/2); graphCtx.rotate(-Math.PI/2); graphCtx.textAlign = 'center'; graphCtx.fillText('Value (0 - ' + Y_MAX + ')', 0, 0); graphCtx.restore();
+
+            // draw current values next to legend (latest sample within the 0..GRAPH_MAX_SECONDS window)
+            let last = data.filter(pt=>pt.t >= tmin && pt.t <= tmax).slice(-1)[0];
+            if (!last) last = data[data.length-1];
+            const legendLive = document.getElementById('graph-legend-live');
+            if (legendLive && last) {
+                legendLive.innerHTML = `<span style="color:#ff9100">${Math.round(last.speed)} km/h</span>&nbsp;&nbsp;<span style="color:#1e90ff">${last.y.toFixed(2)} m</span>&nbsp;&nbsp;<span style="color:#00ff80">${last.dist.toFixed(2)} m</span>&nbsp;&nbsp;<span style="color:#ff3366">${last.ang.toFixed(2)}</span>`;
+            }
         }
 
         function setupUI() {
@@ -748,6 +969,11 @@
             window.addEventListener('resize', () => {
                 camera.aspect = window.innerWidth/window.innerHeight; camera.updateProjectionMatrix();
                 renderer.setSize(window.innerWidth, window.innerHeight); labelRenderer.setSize(window.innerWidth, window.innerHeight);
+                // adjust graph canvas
+                if (graphCanvas) {
+                    const dpr = window.devicePixelRatio || 1; graphCanvas.width = Math.floor(graphCanvas.clientWidth * dpr); graphCanvas.height = Math.floor(graphCanvas.clientHeight * dpr);
+                    if (graphCtx) graphCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+                }
             });
 
             const bindPhy = (id, key, disp) => {
@@ -768,6 +994,12 @@
             });
 
             applyDrillSelection();
+            // prepare the graph panel and event handlers
+            createGraphPanel();
+            // sizing
+            if (graphCanvas) { const dpr = window.devicePixelRatio || 1; graphCanvas.width = Math.floor(graphCanvas.clientWidth * dpr); graphCanvas.height = Math.floor(graphCanvas.clientHeight * dpr); if (graphCtx) graphCtx.setTransform(dpr, 0, 0, dpr, 0, 0); }
+            const btn = document.getElementById('btn-toggle-graph'); if (btn) btn.addEventListener('click', toggleGraphPanel);
+            const btnc = document.getElementById('btn-clear-graphs'); if (btnc) btnc.addEventListener('click', clearGraphData);
         }
 
         init();
