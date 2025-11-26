@@ -284,6 +284,7 @@
         let scene, camera, renderer, labelRenderer, world;
         let DESKTOP_ASPECT; // captured on init() to preserve desktop aspect ratio on other screens
         let DESKTOP_WIDTH, DESKTOP_HEIGHT; // capture desktop size so we can scale UI
+        const DEFAULT_DESKTOP = { w: 1366, h: 768 }; // fallback preset when the page is loaded on a small device
         let balls = [];
         let graphPanel, graphCanvas, graphCtx, graphVisible = false;
         let lastGraphData = null; // persistent data after ball removal until next fire
@@ -321,6 +322,9 @@
                 uiLayer.style.height = (DESKTOP_HEIGHT || rect.height) + 'px';
                 uiLayer.style.transformOrigin = 'left top';
                 uiLayer.style.transform = 'scale(' + scale + ')';
+                // After UI scale change, ensure panels remain in viewport bounds and the graph canvas is sized
+                if (graphPanel) clampPanelToWindow();
+                if (graphCanvas) resizeGraphCanvas();
             } catch (e) { console.warn('updateUiScale error', e); }
         }
 
@@ -329,10 +333,15 @@
             scene.background = new THREE.Color(0x0a1a2a); 
             scene.fog = new THREE.Fog(0x0a1a2a, 20, 100);
 
-            // Capture the desktop aspect ratio and size at load-time and use it across viewports to keep proportions
-            DESKTOP_ASPECT = window.innerWidth / window.innerHeight;
-            DESKTOP_WIDTH = window.innerWidth;
-            DESKTOP_HEIGHT = window.innerHeight;
+            // Capture a desktop aspect ratio and size to use as a reference across viewports.
+            // Use a fallback desktop size when the app is loaded on a small or mobile device
+            const isSmallDevice = window.matchMedia('(max-width: 900px)').matches || ('ontouchstart' in window) || /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+            if (isSmallDevice) {
+                DESKTOP_WIDTH = DEFAULT_DESKTOP.w; DESKTOP_HEIGHT = DEFAULT_DESKTOP.h;
+            } else {
+                DESKTOP_WIDTH = window.innerWidth; DESKTOP_HEIGHT = window.innerHeight;
+            }
+            DESKTOP_ASPECT = DESKTOP_WIDTH / DESKTOP_HEIGHT;
             camera = new THREE.PerspectiveCamera(60, DESKTOP_ASPECT, 0.1, 1000);
             camera.position.set(0, 10, -20);
 
@@ -1032,6 +1041,8 @@
                     if (graphCtx) graphCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
                 }
             });
+            // Handle device orientation changes (mobile)
+            window.addEventListener('orientationchange', () => { setTimeout(() => { resizeViewport(); updateUiScale(); if (graphPanel) clampPanelToWindow(); if (graphCanvas) resizeGraphCanvas(); }, 120); });
 
             const bindPhy = (id, key, disp) => {
                 document.getElementById(id).addEventListener('input', e => { updatePhysicsInput(id, key, disp, e.target.value); updatePhysicsParams(); });
