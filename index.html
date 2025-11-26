@@ -282,6 +282,7 @@
                     <option value="Grounder">Ground Fielding</option>
                     <option value="Slip Catch">Slip Catch</option>
                     <option value="Boundary">Boundary Riding</option>
+                    <option value="Custom">Custom</option>
                 </select>
             </div>
             <div class="control-group">
@@ -731,7 +732,12 @@
             
             const limits = state.limits;
 
-            if (state.playerMode) {
+            if (state.drill === 'Custom') {
+                // CUSTOM MODE: Use exact slider values, no randomization, no updates
+                finalSpeed = state.speed;
+                finalTilt = state.tilt;
+                finalPan = state.pan;
+            } else if (state.playerMode) {
                 const pt = playerMarker.position;
                 const dist = Math.sqrt(pt.x*pt.x + pt.z*pt.z);
                 const angleRad = Math.atan2(pt.x, pt.z);
@@ -779,10 +785,12 @@
                 finalPan = rnd(limits.pMin, limits.pMax);
             }
 
-            // Update Visual State
-            updateSliderOnly('inp-speed', 'speed', 'val-speed', finalSpeed, ' km/h');
-            updateSliderOnly('inp-tilt', 'tilt', 'val-tilt', finalTilt, '°');
-            updateSliderOnly('inp-pan', 'pan', 'val-pan', finalPan, '°');
+            // Update Visual State (only if not in Custom mode)
+            if (state.drill !== 'Custom') {
+                updateSliderOnly('inp-speed', 'speed', 'val-speed', finalSpeed, ' km/h');
+                updateSliderOnly('inp-tilt', 'tilt', 'val-tilt', finalTilt, '°');
+                updateSliderOnly('inp-pan', 'pan', 'val-pan', finalPan, '°');
+            }
 
             const rPan = THREE.MathUtils.degToRad(-finalPan);
             const rTilt = THREE.MathUtils.degToRad(finalTilt);
@@ -792,12 +800,23 @@
             const vy = Math.sin(rTilt) * vMag;
             const vz = Math.cos(rPan) * Math.cos(rTilt) * vMag;
 
-            const spawnY = 0.5 + state.height;
+            // Calculate barrel front position: head center + forward direction * barrel length
+            // Head center world Y = base(0.12) + swivel(0.21) + head local Y(state.height - 0.09) = 0.24 + state.height
+            // Barrel extends 0.5 units forward (0.32 position + 0.18 half length) along the aim direction
+            const barrelFrontOffset = 0;
+            const headCenterY = 0.24 + state.height;
+            const forwardX = Math.sin(rPan) * Math.cos(rTilt);
+            const forwardY = Math.sin(rTilt);
+            const forwardZ = Math.cos(rPan) * Math.cos(rTilt);
+            
+            const spawnX = forwardX * barrelFrontOffset;
+            const spawnY = headCenterY + forwardY * barrelFrontOffset;
+            const spawnZ = forwardZ * barrelFrontOffset;
 
             // v5.1 PHYSICS BODY
             const body = new CANNON.Body({
                 mass: state.mass, shape: new CANNON.Sphere(0.072),
-                position: new CANNON.Vec3(0, spawnY, 0),
+                position: new CANNON.Vec3(spawnX, spawnY, spawnZ),
                 linearDamping: state.drag, angularDamping: state.angDrag, 
                 material: matBall
             });
@@ -852,17 +871,36 @@
 
         // Apply drill defaults + INSTANTLY ROTATE MACHINE
         function applyDrillSelection() {
-            const def = defaultDrills[state.drill];
-            state.limits = { ...def };
-            
-            document.getElementById('min-speed').value = def.sMin; document.getElementById('max-speed').value = def.sMax;
-            document.getElementById('min-tilt').value = def.tMin;  document.getElementById('max-tilt').value = def.tMax;
-            document.getElementById('min-pan').value = def.pMin;   document.getElementById('max-pan').value = def.pMax;
+            if (state.drill === 'Custom') {
+                // Custom mode: Enable sliders and set wide limits
+                state.limits = { sMin: 40, sMax: 160, sDef: 80, tMin: -10, tMax: 80, tDef: 10, pMin: -45, pMax: 45, pDef: 0 };
+                
+                document.getElementById('min-speed').value = 40; document.getElementById('max-speed').value = 160;
+                document.getElementById('min-tilt').value = -10;  document.getElementById('max-tilt').value = 80;
+                document.getElementById('min-pan').value = -45;   document.getElementById('max-pan').value = 45;
 
-            // Instant Visual Feedback
-            updateSliderOnly('inp-speed', 'speed', 'val-speed', def.sDef, ' km/h');
-            updateSliderOnly('inp-tilt', 'tilt', 'val-tilt', def.tDef, '°');
-            updateSliderOnly('inp-pan', 'pan', 'val-pan', def.pDef, '°');
+                // Enable sliders for custom mode
+                document.getElementById('inp-speed').disabled = false;
+                document.getElementById('inp-tilt').disabled = false;
+                document.getElementById('inp-pan').disabled = false;
+            } else {
+                const def = defaultDrills[state.drill];
+                state.limits = { ...def };
+                
+                document.getElementById('min-speed').value = def.sMin; document.getElementById('max-speed').value = def.sMax;
+                document.getElementById('min-tilt').value = def.tMin;  document.getElementById('max-tilt').value = def.tMax;
+                document.getElementById('min-pan').value = def.pMin;   document.getElementById('max-pan').value = def.pMax;
+
+                // Instant Visual Feedback
+                updateSliderOnly('inp-speed', 'speed', 'val-speed', def.sDef, ' km/h');
+                updateSliderOnly('inp-tilt', 'tilt', 'val-tilt', def.tDef, '°');
+                updateSliderOnly('inp-pan', 'pan', 'val-pan', def.pDef, '°');
+
+                // Disable sliders for non-custom modes
+                document.getElementById('inp-speed').disabled = true;
+                document.getElementById('inp-tilt').disabled = true;
+                document.getElementById('inp-pan').disabled = true;
+            }
         }
 
         function animate() {
