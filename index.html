@@ -634,16 +634,20 @@
             if (intersects.length > 0) {
                 const pt = intersects[0].point;
                 playerMarker.position.set(pt.x, 0.9, pt.z);
-                
-                // Pan: Always aim at player
-                const angleRad = Math.atan2(pt.x, pt.z);
-                const angleDeg = -THREE.MathUtils.radToDeg(angleRad);
+
+                // Pan: aim toward player relative to machine's world orientation
+                const basePos = machineBase ? machineBase.position : new THREE.Vector3();
+                const relX = pt.x - basePos.x;
+                const relZ = pt.z - basePos.z;
+                const worldYawDeg = THREE.MathUtils.radToDeg(Math.atan2(relX, relZ));
+                const baseYawDeg = machineBase ? THREE.MathUtils.radToDeg(machineBase.rotation.y) : 0;
+                const angleDeg = baseYawDeg - worldYawDeg;
                 
                 // Pan is usually not limited by drill in the same way, but let's clamp it if you want strict field constraints
                 // For now, we allow full pan to track player, but launch will be clamped if needed.
                 updateSliderOnly('inp-pan', 'pan', 'val-pan', angleDeg, '°');
 
-                const dist = Math.sqrt(pt.x*pt.x + pt.z*pt.z);
+                const dist = Math.sqrt(relX*relX + relZ*relZ);
                 
                 // USE DRILL DEFAULTS
                 const limits = state.limits;
@@ -748,9 +752,13 @@
                 finalPan = state.pan;
             } else if (state.playerMode) {
                 const pt = playerMarker.position;
-                const dist = Math.sqrt(pt.x*pt.x + pt.z*pt.z);
-                const angleRad = Math.atan2(pt.x, pt.z);
-                const basePan = -THREE.MathUtils.radToDeg(angleRad);
+                const basePos = machineBase ? machineBase.position : new THREE.Vector3();
+                const relX = pt.x - basePos.x;
+                const relZ = pt.z - basePos.z;
+                const dist = Math.sqrt(relX*relX + relZ*relZ);
+                const worldYawDeg = THREE.MathUtils.radToDeg(Math.atan2(relX, relZ));
+                const baseYawDeg = machineBase ? THREE.MathUtils.radToDeg(machineBase.rotation.y) : 0;
+                const basePan = baseYawDeg - worldYawDeg;
                 
                 // 1. Pan: Aim at player with slight error
                 const err = state.error;
